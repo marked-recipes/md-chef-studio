@@ -15,7 +15,7 @@ class RemoteAIService {
 
     final cleanModel = model.trim().isEmpty ? 'gemini-1.5-flash' : model.trim();
     final url = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent?key=${apiKey.trim()}',
+      'https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent',
     );
 
     final contents = <Map<String, dynamic>>[
@@ -45,7 +45,10 @@ class RemoteAIService {
 
     final response = await http.post(
       url,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey.trim(),
+      },
       body: jsonEncode(body),
     ).timeout(const Duration(seconds: 90));
 
