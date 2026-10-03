@@ -120,7 +120,7 @@ flutter test
 
 ## 🌐 Deploying to Netlify
 
-The repository is pre-configured with [`netlify.toml`](file:///Users/moscac/dev/carljmosca/md-chef-studio/netlify.toml) and [`build.sh`](file:///Users/moscac/dev/carljmosca/md-chef-studio/build.sh).
+The repository is pre-configured with [`netlify.toml`](netlify.toml) and [`build.sh`](build.sh).
 
 ### Option A: Connect GitHub to Netlify (Recommended)
 1. Push this repository to GitHub:
@@ -132,7 +132,7 @@ The repository is pre-configured with [`netlify.toml`](file:///Users/moscac/dev/
 2. Log in to [Netlify](https://app.netlify.com/) and click **"Add new site" > "Import an existing project"**.
 3. Select your repository.
 4. Netlify will automatically detect `netlify.toml`:
-   - **Build command**: `./build.sh` (or `flutter build web --release`)
+   - **Build command**: `./build.sh`
    - **Publish directory**: `build/web`
 5. Click **"Deploy site"**!
 
@@ -147,7 +147,7 @@ npx netlify-cli deploy --prod --dir=build/web
 ```
 
 ### WASM & WebGPU Headers
-[`netlify.toml`](file:///Users/moscac/dev/carljmosca/md-chef-studio/netlify.toml) automatically sets the required headers for WebAssembly multi-threading, `SharedArrayBuffer`, and WebGPU:
+[`netlify.toml`](netlify.toml) automatically sets the required headers for WebAssembly multi-threading, `SharedArrayBuffer`, and WebGPU:
 ```toml
 [[headers]]
   for = "/*"
