@@ -9,13 +9,9 @@ if ! command -v flutter &> /dev/null; then
     echo "Found existing Flutter SDK in /tmp/flutter_sdk/flutter/bin"
     export PATH="/tmp/flutter_sdk/flutter/bin:$PATH"
   else
-    echo "Flutter not found. Installing Flutter SDK..."
-    FLUTTER_VERSION="3.24.3"
-    FLUTTER_URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
-
+    echo "Flutter not found. Installing Flutter SDK (stable channel)..."
     mkdir -p /tmp/flutter_sdk
-    echo "Downloading Flutter ${FLUTTER_VERSION}..."
-    curl -fSL --retry 3 "$FLUTTER_URL" | tar -xJ -C /tmp/flutter_sdk
+    git clone --depth 1 -b stable https://github.com/flutter/flutter.git /tmp/flutter_sdk/flutter
     export PATH="/tmp/flutter_sdk/flutter/bin:$PATH"
   fi
 fi
