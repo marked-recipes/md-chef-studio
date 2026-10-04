@@ -21,6 +21,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  bool _hasPromptedGitConfigThisSession = false;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +32,91 @@ class _HomePageState extends State<HomePage> {
       final recipes = context.read<RecipeProvider>();
       recipes.fetchFromGitHub(settings.gitConfig);
     });
+  }
+
+  Future<void> _handleNewRecipeClick() async {
+    final settingsProvider = context.read<SettingsProvider>();
+    final recipeProvider = context.read<RecipeProvider>();
+
+    if (!settingsProvider.gitConfig.hasToken && !_hasPromptedGitConfigThisSession) {
+      _hasPromptedGitConfigThisSession = true;
+
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: const Row(
+              children: [
+                Icon(Icons.cloud_off_outlined, color: Colors.amber, size: 24),
+                SizedBox(width: 12),
+                Text('Git Not Configured Yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'You are currently in local mode without GitHub credentials configured.',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '• Recipes you create will be safely stored in your browser\'s local storage so you can write, edit, and cook offline right away.\n\n'
+                    '• If you want to push and sync recipes with GitHub, you can configure Git now — or anytime later by clicking the Git button in the top navigation bar.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.45,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop('continue'),
+                child: const Text('Continue & Save Locally'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.settings, size: 16),
+                label: const Text('Configure Git First'),
+                onPressed: () => Navigator.of(ctx).pop('configure'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (!mounted) return;
+
+      if (action == 'configure') {
+        await showDialog(
+          context: context,
+          builder: (ctx) => const GitSettingsDialog(),
+        );
+        if (!mounted) return;
+      } else if (action == null) {
+        // Dismissed / tapped outside dialog without choosing
+        return;
+      }
+    }
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => RecipeEditorDialog(initialCategory: recipeProvider.selectedCategory),
+      );
+    }
   }
 
   @override
@@ -220,25 +307,13 @@ class _HomePageState extends State<HomePage> {
               ),
               icon: Icon(Icons.add, size: 16, color: primaryColor),
               label: Text('New Recipe', style: TextStyle(color: primaryColor)),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (ctx) => RecipeEditorDialog(initialCategory: recipeProvider.selectedCategory),
-                );
-              },
+              onPressed: _handleNewRecipeClick,
             )
           else
             IconButton(
               tooltip: 'New Recipe',
               icon: Icon(Icons.add_circle_outline, color: primaryColor),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (ctx) => RecipeEditorDialog(initialCategory: recipeProvider.selectedCategory),
-                );
-              },
+              onPressed: _handleNewRecipeClick,
             ),
 
           const SizedBox(width: 4),
