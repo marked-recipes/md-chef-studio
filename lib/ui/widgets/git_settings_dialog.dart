@@ -6,6 +6,7 @@ import '../../providers/recipe_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/github_service.dart';
 import '../../theme/app_theme.dart';
+import 'contribute_recipe_dialog.dart';
 import 'git_branch_icon.dart';
 
 class GitSettingsDialog extends StatefulWidget {
@@ -317,13 +318,30 @@ class _GitSettingsDialogState extends State<GitSettingsDialog> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155), foregroundColor: Colors.white),
-                      icon: _isForking
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.fork_right, size: 16),
-                      label: const Text('Fork to My Account'),
-                      onPressed: _isForking ? null : _forkRepo,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155), foregroundColor: Colors.white),
+                          icon: _isForking
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.fork_right, size: 16),
+                          label: const Text('Fork to My Account'),
+                          onPressed: _isForking ? null : _forkRepo,
+                        ),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.add_box_outlined, size: 16),
+                          label: const Text('Create Blank Repo'),
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            showDialog(
+                              context: context,
+                              builder: (_) => const HelpGuidesDialog(initialTabIndex: 1),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),

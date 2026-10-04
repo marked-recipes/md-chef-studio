@@ -159,42 +159,6 @@ class _HomePageState extends State<HomePage> {
             ),
           const SizedBox(width: 4),
 
-          // Contribute Button (Responsive)
-          if (MediaQuery.of(context).size.width >= 1200)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: isDark ? Colors.white70 : Colors.black87,
-                  side: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                icon: Icon(Icons.volunteer_activism_outlined, size: 16, color: primaryColor),
-                label: const Text(
-                  'Contribute',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (ctx) => const ContributeRecipeDialog(),
-                  );
-                },
-              ),
-            )
-          else
-            IconButton(
-              tooltip: 'Contribute Recipe to MarkedChef (Pull Request / Issue)',
-              icon: Icon(Icons.volunteer_activism_outlined, color: primaryColor, size: 20),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => const ContributeRecipeDialog(),
-                );
-              },
-            ),
-          const SizedBox(width: 4),
-
           // Pull / Delta-Sync Button
           IconButton(
             tooltip: recipeProvider.isSyncing
@@ -289,6 +253,66 @@ class _HomePageState extends State<HomePage> {
                 builder: (ctx) => const AiSettingsDialog(),
               );
             },
+          ),
+
+          // Help, Guides & Community Menu
+          PopupMenuButton<String>(
+            tooltip: 'Help, Guides & Community',
+            icon: const Icon(Icons.help_outline),
+            onSelected: (val) {
+              int tabIndex = 0;
+              if (val == 'contribute') tabIndex = 0;
+              if (val == 'personal_repo') tabIndex = 1;
+              if (val == 'standards') tabIndex = 2;
+              if (val == 'about') tabIndex = 3;
+              showDialog(
+                context: context,
+                builder: (ctx) => HelpGuidesDialog(initialTabIndex: tabIndex),
+              );
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'contribute',
+                child: Row(
+                  children: [
+                    Icon(Icons.volunteer_activism_outlined, size: 18, color: Colors.teal),
+                    SizedBox(width: 10),
+                    Text('Contribute Recipe (PR)'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'personal_repo',
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_stories_outlined, size: 18, color: Colors.amber),
+                    SizedBox(width: 10),
+                    Text('Create Personal Cookbook Repo'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'standards',
+                child: Row(
+                  children: [
+                    Icon(Icons.rule_outlined, size: 18, color: Colors.blueAccent),
+                    SizedBox(width: 10),
+                    Text('Recipe Format Standards'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'about',
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 18),
+                    SizedBox(width: 10),
+                    Text('About MarkedChef Studio'),
+                  ],
+                ),
+              ),
+            ],
           ),
 
           // Dark/Light Mode Switcher

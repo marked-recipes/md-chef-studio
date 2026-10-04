@@ -292,4 +292,42 @@ class GitHubService {
       throw Exception('Failed to create pull request (${response.statusCode}): ${error['message'] ?? response.body}');
     }
   }
+
+  /// Creates a brand new standalone GitHub repository on the authenticated user's account
+  static Future<Map<String, dynamic>> createPersonalRepository({
+    required GitRepoConfig config,
+    required String repoName,
+    String description = 'Personal cookbook for MarkedChef and MD Chef Studio',
+    bool isPrivate = false,
+  }) async {
+    if (!config.hasToken) {
+      throw Exception('A GitHub Personal Access Token is required to create a new repository.');
+    }
+
+    final url = Uri.parse('$baseUrl/user/repos');
+    final payload = {
+      'name': repoName,
+      'description': description,
+      'private': isPrivate,
+      'auto_init': true,
+    };
+
+    final response = await http.post(
+      url,
+      headers: _buildHeaders(config),
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception('Failed to create repository (${response.statusCode}): ${error['message'] ?? response.body}');
+    }
+  }
+
+  /// Generates URL to create a new repository on GitHub via browser
+  static String getNewRepoUrl({String name = 'my-recipes'}) {
+    return 'https://github.com/new?name=${Uri.encodeComponent(name)}&description=${Uri.encodeComponent("Personal cookbook for MarkedChef")}&auto_init=true';
+  }
 }
