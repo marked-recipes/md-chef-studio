@@ -24,24 +24,38 @@ source: https://example.com/recipe
 
 ## Ingredients
 
+- [ ] 1 flatbread (about 20 inches)
+
+### Sauce (optional subgroup)
 - [ ] 1 cup ingredient
 - [ ] 2 tablespoons olive oil
 
+### Topping (optional subgroup)
+- [ ] 1 cup crumbled feta cheese
+
+### Garnishes (optional subgroup)
+- [ ] 1/4 cup crumbled feta cheese
+- [ ] olive oil
+
 ## Instructions
 
+### Make the sauce (optional stage)
 - [ ] Step 1 description.
 - [ ] Step 2 description.
 
-## Notes
-* Helpful notes or tips (optional).
+### Assemble and Bake (optional stage)
+- [ ] Step 3 description.
 
-Formatting guidelines:
-- Every ingredient MUST begin with "- [ ] ".
-- If ingredients are grouped, use "### Group Name" headers (e.g. "### Dough", "### Sauce").
-- Every instruction step MUST begin with "- [ ] ".
-- If instructions are grouped into stages, use "### Stage Name" headers (e.g. "### Dough", "### Assembly & Baking").
-- Numbers for prep_time and cook_time should be integers in minutes when possible.
-- Do NOT wrap your whole response in triple backticks. Return the raw markdown directly.
+## Notes
+* Helpful notes, tips, variations, or serving suggestions.
+
+Critical Extraction Rules:
+- Completeness: Read the ENTIRE document across ALL pages. Never truncate or omit instruction steps or notes.
+- Subgroups & Multi-stage ingredients: Recipes frequently use ingredients in multiple components (e.g. olive oil or feta cheese used in both a sauce and a garnish). Group ingredients under "### Subgroup Name" headers (e.g. "### Garlic confit sauce", "### Spanakopita topping", "### Garnishes"). Do NOT deduplicate or delete ingredients that legitimately appear in different subgroups!
+- Instruction stages: If instructions have stage titles (e.g. "Make the garlic confit sauce", "Make the topping", "Assemble and bake"), preserve them as "### Stage Name" headers. Every single instruction step MUST be formatted as "- [ ] Step description."
+- Notes: Capture all recipe notes, serving recommendations, and variations under "## Notes" as bullet points with "* ". Exclude raw nutritional/calorie macro breakdowns.
+- Metadata: Extract prep_time, cook_time, servings as integer numbers whenever possible. Extract author into credit.
+- Output: Do NOT wrap your whole response in triple backticks. Return the raw markdown directly.
 ''';
 
   /// Extracts recipe from raw source text using the configured AI engine
@@ -52,7 +66,8 @@ Formatting guidelines:
     String? sourceUrl,
   }) async {
     final prompt = '''
-Please extract and format the following cooking recipe into MarkedChef format.
+Please extract and format the entire cooking recipe from the source text into MarkedChef format.
+Ensure ALL pages are processed completely, preserving component ingredient subgroups (e.g. sauces, toppings, garnishes), all instruction steps and stages, and all recipe notes/tips.
 ${sourceUrl != null && sourceUrl.isNotEmpty ? 'Source URL: $sourceUrl\n' : ''}
 ${categoryHint != null && categoryHint.isNotEmpty ? 'Suggested Category: $categoryHint\n' : ''}
 

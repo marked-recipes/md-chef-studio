@@ -7,6 +7,108 @@
 (function () {
   console.log('[md-chef-studio] Initializing Web Bridge...');
 
+  // Helper to extract text in visual reading order from PDF.js textContent
+  function processPdfTextContent(textContent) {
+    if (!textContent || !textContent.items || textContent.items.length === 0) {
+      return '';
+    }
+
+    const items = textContent.items.filter((item) => item && typeof item.str === 'string');
+    if (items.length === 0) return '';
+
+    // Transform matrix: [scaleX, skewY, skewX, scaleY, tx, ty]
+    // In PDF coordinates, (0,0) is at bottom-left. Larger ty is higher up on the page.
+    const itemsWithCoords = items.map((item) => {
+      const tx = item.transform ? item.transform[4] : 0;
+      const ty = item.transform ? item.transform[5] : 0;
+      const width = item.width || 0;
+      const height = item.height || Math.abs(item.transform ? item.transform[3] : 0) || 12;
+      return {
+        str: item.str,
+        x: tx,
+        y: ty,
+        width: width,
+        height: height,
+      };
+    });
+
+    // Sort primarily by Y descending (top to bottom), secondarily by X ascending (left to right)
+    itemsWithCoords.sort((a, b) => {
+      const yDiff = b.y - a.y;
+      if (Math.abs(yDiff) <= 4.0) {
+        return a.x - b.x;
+      }
+      return yDiff;
+    });
+
+    // Group items into visual lines
+    const lines = [];
+    let currentLine = [];
+    let currentLineY = null;
+
+    for (const item of itemsWithCoords) {
+      if (item.str === '') continue;
+
+      if (currentLineY === null) {
+        currentLine.push(item);
+        currentLineY = item.y;
+      } else if (Math.abs(currentLineY - item.y) <= 4.0) {
+        currentLine.push(item);
+      } else {
+        currentLine.sort((a, b) => a.x - b.x);
+        lines.push({ y: currentLineY, items: currentLine });
+        currentLine = [item];
+        currentLineY = item.y;
+      }
+    }
+
+    if (currentLine.length > 0) {
+      currentLine.sort((a, b) => a.x - b.x);
+      lines.push({ y: currentLineY, items: currentLine });
+    }
+
+    // Assemble text from lines with newline and paragraph gap detection
+    let pageText = '';
+    let prevY = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const lineObj = lines[i];
+      let lineStr = '';
+      let prevItemEnd = null;
+
+      for (const item of lineObj.items) {
+        if (lineStr.length > 0) {
+          const needsSpace =
+            !lineStr.endsWith(' ') &&
+            !item.str.startsWith(' ') &&
+            (prevItemEnd === null || item.x - prevItemEnd > 1.5);
+          if (needsSpace) {
+            lineStr += ' ';
+          }
+        }
+        lineStr += item.str;
+        prevItemEnd = item.x + item.width;
+      }
+
+      lineStr = lineStr.trim();
+      if (lineStr.length === 0) continue;
+
+      if (prevY !== null) {
+        const yGap = prevY - lineObj.y;
+        if (yGap > 22.0) {
+          pageText += '\n\n';
+        } else {
+          pageText += '\n';
+        }
+      }
+
+      pageText += lineStr;
+      prevY = lineObj.y;
+    }
+
+    return pageText;
+  }
+
   // 1. PDF Text Extraction using PDF.js
   window.extractTextFromPdfBytes = async function (uint8ArrayData) {
     try {
@@ -20,8 +122,10 @@
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item) => item.str).join(' ');
-        fullText += `--- Page ${pageNum} ---\n` + pageText + '\n\n';
+        const pageText = processPdfTextContent(textContent);
+        if (pageText.trim()) {
+          fullText += `--- Page ${pageNum} ---\n` + pageText + '\n\n';
+        }
       }
 
       return fullText.trim();
