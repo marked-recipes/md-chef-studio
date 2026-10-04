@@ -68,3 +68,4 @@ class _GitBranchIconPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _GitBranchIconPainter oldDelegate) => oldDelegate.color != color;
 }
+

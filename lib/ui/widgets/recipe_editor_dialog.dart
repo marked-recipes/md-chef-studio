@@ -684,7 +684,7 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
               itemCount: _ingredients.length,
-              onReorder: _onReorderIngredients,
+              onReorderItem: _onReorderIngredients,
               proxyDecorator: (child, index, animation) => _buildProxyDecorator(child, index, animation, isDark),
               itemBuilder: (context, index) {
                 final item = _ingredients[index];
@@ -740,7 +740,7 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
               itemCount: _instructions.length,
-              onReorder: _onReorderInstructions,
+              onReorderItem: _onReorderInstructions,
               proxyDecorator: (child, index, animation) => _buildProxyDecorator(child, index, animation, isDark),
               itemBuilder: (context, index) {
                 final item = _instructions[index];
@@ -1126,9 +1126,6 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
 
   void _onReorderIngredients(int oldIndex, int newIndex) {
     setState(() {
-      if (oldIndex < newIndex) {
-        newIndex -= 1;
-      }
       final item = _ingredients.removeAt(oldIndex);
       _ingredients.insert(newIndex, item);
     });
@@ -1153,9 +1150,6 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
 
   void _onReorderInstructions(int oldIndex, int newIndex) {
     setState(() {
-      if (oldIndex < newIndex) {
-        newIndex -= 1;
-      }
       final item = _instructions.removeAt(oldIndex);
       _instructions.insert(newIndex, item);
     });
