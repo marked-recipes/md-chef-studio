@@ -16,8 +16,8 @@ Includes an **AI Recipe Studio** that extracts structured recipes from **PDFs, H
 - **Connect any Repo or Fork**: Defaults to [`marked-recipes/recipes`](https://github.com/marked-recipes/recipes), or connect your own fork.
 - **One-Click Forking**: Click "Fork to My Account" in the Git Settings dialog to instantly create a fork under your GitHub profile via the GitHub REST API.
 - **Full CRUD with Git Commits**:
-  - **Add Recipes**: Visual form editor or raw Markdown editor with auto-slug generation.
-  - **Edit Recipes**: Modify frontmatter, ingredients, steps, or notes and push atomic commits.
+  - **Add Recipes**: Visual form editor with drag-and-drop reordering for ingredients, instructions, and section headers, or raw Markdown editor with auto-slug generation.
+  - **Edit Recipes**: Modify frontmatter, drag-and-drop reorder ingredients, steps, or section headers, and push atomic commits.
   - **Delete Recipes**: Remove recipes from the repository with custom commit messages.
 - **Personal Access Token (PAT) Integration**: Securely stored in browser LocalStorage (`SharedPreferences`). Supports fine-grained and classic tokens.
 

@@ -296,16 +296,21 @@ class RecipeProvider with ChangeNotifier {
       final markdown = recipe.toMarkdown();
       recipe.rawMarkdown = markdown;
 
-      if (config.hasToken) {
-        final res = await GitHubService.saveRecipe(
-          config: config,
-          path: recipe.repoPath,
-          content: markdown,
-          commitMessage: commitMessage.isNotEmpty ? commitMessage : 'feat: add ${recipe.title} recipe',
+      if (!config.hasToken) {
+        throw Exception(
+          'A GitHub Personal Access Token is required to commit and push changes to ${config.fullName}. '
+          'Please configure your token in Git Settings.',
         );
-        final newSha = res['content']?['sha'] as String?;
-        recipe.sha = newSha;
       }
+
+      final res = await GitHubService.saveRecipe(
+        config: config,
+        path: recipe.repoPath,
+        content: markdown,
+        commitMessage: commitMessage.isNotEmpty ? commitMessage : 'feat: add ${recipe.title} recipe',
+      );
+      final newSha = res['content']?['sha'] as String?;
+      recipe.sha = newSha;
 
       _recipes.removeWhere((r) => r.repoPath == recipe.repoPath);
       _recipes.insert(0, recipe);
@@ -323,6 +328,28 @@ class RecipeProvider with ChangeNotifier {
     }
   }
 
+  /// Saves a recipe to local browser cache only without pushing to GitHub
+  Future<void> saveLocalDraft({
+    required Recipe recipe,
+    required GitRepoConfig config,
+  }) async {
+    final markdown = recipe.toMarkdown();
+    recipe.rawMarkdown = markdown;
+
+    final index = _recipes.indexWhere((r) => r.repoPath == recipe.repoPath);
+    if (index != -1) {
+      _recipes[index] = recipe;
+    } else {
+      _recipes.insert(0, recipe);
+    }
+    _selectedRecipe = recipe;
+
+    final repoKey = RecipeCacheService.makeRepoKey(config.owner, config.repo, config.branch);
+    await RecipeCacheService.saveRecipe(repoKey, recipe);
+    _cachedRecipeCount = _recipes.length;
+    notifyListeners();
+  }
+
   /// Update an existing recipe and commit to GitHub
   Future<void> updateRecipe({
     required Recipe recipe,
@@ -337,17 +364,22 @@ class RecipeProvider with ChangeNotifier {
       final markdown = recipe.toMarkdown();
       recipe.rawMarkdown = markdown;
 
-      if (config.hasToken) {
-        final res = await GitHubService.saveRecipe(
-          config: config,
-          path: recipe.repoPath,
-          content: markdown,
-          sha: recipe.sha,
-          commitMessage: commitMessage.isNotEmpty ? commitMessage : 'chore: update ${recipe.title} recipe',
+      if (!config.hasToken) {
+        throw Exception(
+          'A GitHub Personal Access Token is required to commit and push changes to ${config.fullName}. '
+          'Please configure your token in Git Settings.',
         );
-        final newSha = res['content']?['sha'] as String?;
-        recipe.sha = newSha;
       }
+
+      final res = await GitHubService.saveRecipe(
+        config: config,
+        path: recipe.repoPath,
+        content: markdown,
+        sha: recipe.sha,
+        commitMessage: commitMessage.isNotEmpty ? commitMessage : 'chore: update ${recipe.title} recipe',
+      );
+      final newSha = res['content']?['sha'] as String?;
+      recipe.sha = newSha;
 
       final index = _recipes.indexWhere((r) => r.repoPath == recipe.repoPath);
       if (index != -1) {
@@ -379,14 +411,19 @@ class RecipeProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      if (config.hasToken && recipe.sha != null) {
-        await GitHubService.deleteRecipe(
-          config: config,
-          path: recipe.repoPath,
-          sha: recipe.sha!,
-          commitMessage: commitMessage.isNotEmpty ? commitMessage : 'refactor: delete ${recipe.title} recipe',
+      if (!config.hasToken) {
+        throw Exception(
+          'A GitHub Personal Access Token is required to delete recipes from ${config.fullName}. '
+          'Please configure your token in Git Settings.',
         );
       }
+
+      await GitHubService.deleteRecipe(
+        config: config,
+        path: recipe.repoPath,
+        sha: recipe.sha ?? '',
+        commitMessage: commitMessage.isNotEmpty ? commitMessage : 'refactor: delete ${recipe.title} recipe',
+      );
 
       _recipes.removeWhere((r) => r.repoPath == recipe.repoPath);
       if (_selectedRecipe?.repoPath == recipe.repoPath) {

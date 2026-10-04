@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:md_chef_studio/models/recipe.dart';
+import 'package:md_chef_studio/models/git_repo_config.dart';
+import 'package:md_chef_studio/providers/recipe_provider.dart';
+import 'package:md_chef_studio/providers/settings_provider.dart';
+import 'package:md_chef_studio/providers/extraction_provider.dart';
 import 'package:md_chef_studio/services/recipe_cache_service.dart';
+import 'package:md_chef_studio/ui/widgets/recipe_editor_dialog.dart';
 import 'package:md_chef_studio/main.dart';
 
 void main() {
@@ -181,5 +187,130 @@ tags:
     await RecipeCacheService.clearCache(repoKey);
     final emptyManifest = await RecipeCacheService.loadManifest(repoKey);
     expect(emptyManifest.isEmpty, true);
+  });
+
+  testWidgets('RecipeEditorDialog supports drag-and-drop reordering with ReorderableListView', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    SharedPreferences.setMockInitialValues({});
+
+    final recipe = Recipe.fromMarkdown(
+      'Pasta/cacio-e-pepe.md',
+      '''---
+title: Cacio e Pepe
+---
+## Ingredients
+### Pasta Base
+- [ ] 8 oz spaghetti
+### Sauce
+- [ ] 2 tbsp pecorino cheese
+
+## Instructions
+### Boil
+- [ ] Boil water
+### Mix
+- [ ] Mix cheese and pepper
+''',
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => RecipeProvider()),
+          ChangeNotifierProvider(create: (_) => ExtractionProvider()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: RecipeEditorDialog(recipe: recipe),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify ReorderableListViews exist for both Ingredients and Instructions
+    expect(find.byType(ReorderableListView), findsNWidgets(2));
+
+    // Verify section headers and items are rendered with editable text
+    expect(find.text('Pasta Base'), findsOneWidget);
+    expect(find.text('8 oz spaghetti'), findsOneWidget);
+    expect(find.text('Sauce'), findsOneWidget);
+    expect(find.text('2 tbsp pecorino cheese'), findsOneWidget);
+
+    // Verify drag handle icons exist for every item and header
+    expect(find.byIcon(Icons.drag_indicator), findsWidgets);
+  });
+
+  test('RecipeProvider enforces Git token requirement on createRecipe, updateRecipe, deleteRecipe', () async {
+    SharedPreferences.setMockInitialValues({});
+    final provider = RecipeProvider();
+    const configWithoutToken = GitRepoConfig(owner: 'test', repo: 'recipes', token: '');
+    final recipe = Recipe.fromMarkdown('Pasta/carbonara.md', '---\ntitle: Carbonara\n---\n## Ingredients\n- [ ] Eggs\n## Instructions\n- [ ] Mix\n');
+
+    expect(
+      () => provider.createRecipe(recipe: recipe, commitMessage: 'add', config: configWithoutToken),
+      throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('Personal Access Token'))),
+    );
+
+    expect(
+      () => provider.updateRecipe(recipe: recipe, commitMessage: 'update', config: configWithoutToken),
+      throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('Personal Access Token'))),
+    );
+
+    expect(
+      () => provider.deleteRecipe(recipe: recipe, commitMessage: 'delete', config: configWithoutToken),
+      throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('Personal Access Token'))),
+    );
+  });
+
+  test('RecipeProvider saveLocalDraft successfully saves locally without Git token', () async {
+    SharedPreferences.setMockInitialValues({});
+    final provider = RecipeProvider();
+    const configWithoutToken = GitRepoConfig(owner: 'test', repo: 'recipes', token: '');
+    final recipe = Recipe.fromMarkdown('Pasta/carbonara.md', '---\ntitle: Carbonara\n---\n## Ingredients\n- [ ] Eggs\n## Instructions\n- [ ] Mix\n');
+
+    await provider.saveLocalDraft(recipe: recipe, config: configWithoutToken);
+
+    expect(provider.recipes.length, 1);
+    expect(provider.recipes.first.title, 'Carbonara');
+    expect(provider.cachedRecipeCount, 1);
+  });
+
+  testWidgets('RecipeEditorDialog displays credentials required dialog when committing without token', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider(create: (_) => RecipeProvider()),
+          ChangeNotifierProvider(create: (_) => ExtractionProvider()),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: RecipeEditorDialog(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Tap Commit button (no token configured by default)
+    final commitButton = find.text('Commit New Recipe');
+    expect(commitButton, findsOneWidget);
+    await tester.tap(commitButton);
+    await tester.pumpAndSettle();
+
+    // Verify warning dialog is displayed instead of proceeding silently
+    expect(find.text('GitHub Credentials Required'), findsOneWidget);
+    expect(find.text('Configure Git Settings'), findsOneWidget);
+    expect(find.text('Save Local Draft Only'), findsOneWidget);
   });
 }

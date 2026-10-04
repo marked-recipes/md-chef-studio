@@ -9,6 +9,7 @@ import '../../providers/settings_provider.dart';
 import '../../services/web_interop/web_bridge.dart';
 import '../../theme/app_theme.dart';
 import 'commit_dialog.dart';
+import 'git_settings_dialog.dart';
 import 'recipe_editor_dialog.dart';
 
 class RecipeViewPane extends StatefulWidget {
@@ -131,6 +132,56 @@ class _RecipeViewPaneState extends State<RecipeViewPane> {
                     tooltip: 'Delete Recipe from Repo',
                     icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                     onPressed: () async {
+                      final gitConfig = settingsProvider.gitConfig;
+                      if (!gitConfig.hasToken) {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            title: const Row(
+                              children: [
+                                Icon(Icons.lock_outline, color: Colors.amber, size: 22),
+                                SizedBox(width: 10),
+                                Expanded(child: Text('GitHub Credentials Required', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                              ],
+                            ),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'You are currently in Read-Only mode for "${gitConfig.fullName}".',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                ),
+                                const SizedBox(height: 10),
+                                const Text(
+                                  'A GitHub Personal Access Token (PAT) with "repo" permissions is required to delete recipes from the remote repository.',
+                                  style: TextStyle(fontSize: 13, height: 1.4),
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.settings, size: 16),
+                                label: const Text('Configure Git Settings'),
+                                onPressed: () {
+                                  Navigator.of(ctx).pop();
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => const GitSettingsDialog(),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                        return;
+                      }
+
                       final confirmedMessage = await showDialog<String>(
                         context: context,
                         builder: (ctx) => CommitDialog(

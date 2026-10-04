@@ -5,6 +5,23 @@ import '../../providers/recipe_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../theme/app_theme.dart';
 import 'commit_dialog.dart';
+import 'git_settings_dialog.dart';
+
+class _EditableRecipeItem {
+  final Key key;
+  final TextEditingController controller;
+  final bool isHeader;
+
+  _EditableRecipeItem({
+    required this.key,
+    required String text,
+    this.isHeader = false,
+  }) : controller = TextEditingController(text: text);
+
+  void dispose() {
+    controller.dispose();
+  }
+}
 
 class RecipeEditorDialog extends StatefulWidget {
   final Recipe? recipe; // null if creating a new recipe
@@ -38,8 +55,8 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
 
   String _difficulty = 'Easy';
   final List<String> _tags = [];
-  final List<RecipeIngredientItem> _ingredients = [];
-  final List<RecipeInstructionItem> _instructions = [];
+  final List<_EditableRecipeItem> _ingredients = [];
+  final List<_EditableRecipeItem> _instructions = [];
 
   bool _isAutoSlug = true;
 
@@ -66,12 +83,32 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
     if (r != null) {
       _difficulty = r.difficulty ?? 'Easy';
       _tags.addAll(r.tags);
-      _ingredients.addAll(r.ingredients.map((e) => e.copyWith()));
-      _instructions.addAll(r.instructions.map((e) => e.copyWith()));
+      for (final ing in r.ingredients) {
+        _ingredients.add(_EditableRecipeItem(
+          key: UniqueKey(),
+          text: ing.text,
+          isHeader: ing.isHeader,
+        ));
+      }
+      for (final ins in r.instructions) {
+        _instructions.add(_EditableRecipeItem(
+          key: UniqueKey(),
+          text: ins.step,
+          isHeader: ins.isHeader,
+        ));
+      }
     } else {
       _tags.addAll(['dinner']);
-      _ingredients.add(RecipeIngredientItem(text: '1 lb main ingredient'));
-      _instructions.add(RecipeInstructionItem(step: 'Prepare all ingredients.'));
+      _ingredients.add(_EditableRecipeItem(
+        key: UniqueKey(),
+        text: '1 lb main ingredient',
+        isHeader: false,
+      ));
+      _instructions.add(_EditableRecipeItem(
+        key: UniqueKey(),
+        text: 'Prepare all ingredients.',
+        isHeader: false,
+      ));
     }
 
     _titleController.addListener(_onTitleChanged);
@@ -100,6 +137,12 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
     _notesController.dispose();
     _tagInputController.dispose();
     _rawMarkdownController.dispose();
+    for (final item in _ingredients) {
+      item.dispose();
+    }
+    for (final item in _instructions) {
+      item.dispose();
+    }
     super.dispose();
   }
 
@@ -122,8 +165,14 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
       tags: List.from(_tags),
       credit: _creditController.text.trim().isEmpty ? null : _creditController.text.trim(),
       source: _sourceController.text.trim().isEmpty ? null : _sourceController.text.trim(),
-      ingredients: List.from(_ingredients),
-      instructions: List.from(_instructions),
+      ingredients: _ingredients
+          .map((e) => RecipeIngredientItem(text: e.controller.text.trim(), isHeader: e.isHeader))
+          .where((e) => e.text.isNotEmpty)
+          .toList(),
+      instructions: _instructions
+          .map((e) => RecipeInstructionItem(step: e.controller.text.trim(), isHeader: e.isHeader))
+          .where((e) => e.step.isNotEmpty)
+          .toList(),
       notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       rawMarkdown: '',
     );
@@ -151,10 +200,30 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
         _difficulty = parsed.difficulty ?? 'Easy';
         _tags.clear();
         _tags.addAll(parsed.tags);
+
+        for (final item in _ingredients) {
+          item.dispose();
+        }
         _ingredients.clear();
-        _ingredients.addAll(parsed.ingredients);
+        for (final ing in parsed.ingredients) {
+          _ingredients.add(_EditableRecipeItem(
+            key: UniqueKey(),
+            text: ing.text,
+            isHeader: ing.isHeader,
+          ));
+        }
+
+        for (final item in _instructions) {
+          item.dispose();
+        }
         _instructions.clear();
-        _instructions.addAll(parsed.instructions);
+        for (final ins in parsed.instructions) {
+          _instructions.add(_EditableRecipeItem(
+            key: UniqueKey(),
+            text: ins.step,
+            isHeader: ins.isHeader,
+          ));
+        }
       });
     } catch (_) {}
   }
@@ -171,6 +240,89 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
 
     final recipeProvider = context.read<RecipeProvider>();
     final settingsProvider = context.read<SettingsProvider>();
+    final gitConfig = settingsProvider.gitConfig;
+
+    // Check if user has Git credentials configured
+    if (!gitConfig.hasToken) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.lock_outline, color: Colors.amber, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text('GitHub Credentials Required', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'You are currently in Read-Only mode for "${gitConfig.fullName}".',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'A GitHub Personal Access Token (PAT) with "repo" permissions is required to commit and push recipes directly to the repository.',
+                style: TextStyle(fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'What would you like to do?',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
+              child: const Text('Cancel'),
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.save_outlined, size: 16),
+              label: const Text('Save Local Draft Only'),
+              onPressed: () => Navigator.of(ctx).pop('draft'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.settings, size: 16),
+              label: const Text('Configure Git Settings'),
+              onPressed: () => Navigator.of(ctx).pop('settings'),
+            ),
+          ],
+        ),
+      );
+
+      if (action == 'settings' && mounted) {
+        await showDialog(
+          context: context,
+          builder: (ctx) => const GitSettingsDialog(),
+        );
+        if (settingsProvider.gitConfig.hasToken && mounted) {
+          _saveAndCommit();
+        }
+        return;
+      } else if (action == 'draft' && mounted) {
+        await recipeProvider.saveLocalDraft(
+          recipe: recipeToSave,
+          config: gitConfig,
+        );
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved "${recipeToSave.title}" to local browser cache (not pushed to GitHub).'),
+              backgroundColor: Colors.teal,
+            ),
+          );
+        }
+        return;
+      }
+      return; // Cancelled
+    }
 
     final defaultCommit = widget.recipe == null
         ? 'feat(${recipeToSave.category.toLowerCase()}): add ${recipeToSave.title} recipe'
@@ -192,13 +344,13 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
         await recipeProvider.createRecipe(
           recipe: recipeToSave,
           commitMessage: commitMsg,
-          config: settingsProvider.gitConfig,
+          config: gitConfig,
         );
       } else {
         await recipeProvider.updateRecipe(
           recipe: recipeToSave,
           commitMessage: commitMsg,
-          config: settingsProvider.gitConfig,
+          config: gitConfig,
         );
       }
 
@@ -492,6 +644,15 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
           Row(
             children: [
               const Text('Ingredients', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              Text(
+                '(drag to reorder)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+              ),
               const Spacer(),
               TextButton.icon(
                 icon: const Icon(Icons.title, size: 16),
@@ -507,43 +668,29 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
             ],
           ),
           const SizedBox(height: 12),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _ingredients.length,
-            itemBuilder: (context, index) {
-              final item = _ingredients[index];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      item.isHeader ? Icons.label_important_outline : Icons.check_box_outline_blank,
-                      size: 20,
-                      color: item.isHeader ? primaryColor : Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        initialValue: item.text,
-                        decoration: InputDecoration(
-                          hintText: item.isHeader ? 'Section Title (e.g. Dressing, Sauce)' : 'e.g. 2 tbsp olive oil',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        ),
-                        onChanged: (val) {
-                          _ingredients[index] = item.copyWith(text: val);
-                        },
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
-                      onPressed: () => setState(() => _ingredients.removeAt(index)),
-                    ),
-                  ],
+          if (_ingredients.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text(
+                  'No ingredients added yet. Click buttons above to add ingredients or headers.',
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white38 : Colors.black38),
                 ),
-              );
-            },
-          ),
+              ),
+            )
+          else
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _ingredients.length,
+              onReorder: _onReorderIngredients,
+              proxyDecorator: (child, index, animation) => _buildProxyDecorator(child, index, animation, isDark),
+              itemBuilder: (context, index) {
+                final item = _ingredients[index];
+                return _buildIngredientRow(context, index, item, isDark, primaryColor);
+              },
+            ),
 
           const SizedBox(height: 24),
           const Divider(),
@@ -553,6 +700,15 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
           Row(
             children: [
               const Text('Instructions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              Text(
+                '(drag to reorder)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+              ),
               const Spacer(),
               TextButton.icon(
                 icon: const Icon(Icons.title, size: 16),
@@ -568,57 +724,29 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
             ],
           ),
           const SizedBox(height: 12),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _instructions.length,
-            itemBuilder: (context, index) {
-              final step = _instructions[index];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: step.isHeader
-                          ? Icon(
-                              Icons.label_important_outline,
-                              size: 20,
-                              color: primaryColor,
-                            )
-                          : CircleAvatar(
-                              radius: 12,
-                              backgroundColor: primaryColor.withAlpha(51),
-                              child: Text(
-                                '${_instructions.take(index + 1).where((s) => !s.isHeader).length}',
-                                style: TextStyle(fontSize: 11, color: primaryColor, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        initialValue: step.step,
-                        maxLines: step.isHeader ? 1 : null,
-                        decoration: InputDecoration(
-                          hintText: step.isHeader ? 'Section Title (e.g. Dough, Sauce, Baking)' : 'Step instructions...',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        ),
-                        onChanged: (val) {
-                          _instructions[index] = step.copyWith(step: val);
-                        },
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
-                      onPressed: () => setState(() => _instructions.removeAt(index)),
-                    ),
-                  ],
+          if (_instructions.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text(
+                  'No instructions added yet. Click buttons above to add steps or headers.',
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white38 : Colors.black38),
                 ),
-              );
-            },
-          ),
+              ),
+            )
+          else
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _instructions.length,
+              onReorder: _onReorderInstructions,
+              proxyDecorator: (child, index, animation) => _buildProxyDecorator(child, index, animation, isDark),
+              itemBuilder: (context, index) {
+                final item = _instructions[index];
+                return _buildInstructionRow(context, index, item, isDark, primaryColor);
+              },
+            ),
 
           const SizedBox(height: 24),
           const Divider(),
@@ -632,6 +760,320 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
             maxLines: 4,
             decoration: const InputDecoration(
               hintText: '* Helpful variations\n* Cooking tips or substitutions',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProxyDecorator(Widget child, int index, Animation<double> animation, bool isDark) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        return Material(
+          elevation: 6,
+          shadowColor: Colors.black45,
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
+
+  Widget _buildIngredientRow(
+    BuildContext context,
+    int index,
+    _EditableRecipeItem item,
+    bool isDark,
+    Color primaryColor,
+  ) {
+    if (item.isHeader) {
+      return Container(
+        key: item.key,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark ? primaryColor.withAlpha(25) : primaryColor.withAlpha(16),
+          border: Border.all(color: primaryColor.withAlpha(80), width: 1.2),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            ReorderableDragStartListener(
+              index: index,
+              child: Tooltip(
+                message: 'Drag to reorder section header',
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.grab,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(Icons.drag_indicator, size: 20, color: primaryColor),
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: primaryColor.withAlpha(45),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.title, size: 14, color: primaryColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    'HEADER',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: item.controller,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'Section Title (e.g. Dough, Sauce, Seasoning)',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+              tooltip: 'Remove section header',
+              onPressed: () => _removeIngredient(index),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      key: item.key,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B).withAlpha(128) : Colors.white,
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          ReorderableDragStartListener(
+            index: index,
+            child: Tooltip(
+              message: 'Drag to reorder ingredient',
+              child: MouseRegion(
+                cursor: SystemMouseCursors.grab,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.drag_indicator,
+                    size: 20,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Icon(
+            Icons.check_box_outline_blank,
+            size: 18,
+            color: Colors.grey.shade400,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: item.controller,
+              decoration: const InputDecoration(
+                hintText: 'e.g. 2 tbsp extra virgin olive oil',
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+            tooltip: 'Remove ingredient',
+            onPressed: () => _removeIngredient(index),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionRow(
+    BuildContext context,
+    int index,
+    _EditableRecipeItem item,
+    bool isDark,
+    Color primaryColor,
+  ) {
+    if (item.isHeader) {
+      return Container(
+        key: item.key,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark ? primaryColor.withAlpha(25) : primaryColor.withAlpha(16),
+          border: Border.all(color: primaryColor.withAlpha(80), width: 1.2),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            ReorderableDragStartListener(
+              index: index,
+              child: Tooltip(
+                message: 'Drag to reorder section header',
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.grab,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(Icons.drag_indicator, size: 20, color: primaryColor),
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: primaryColor.withAlpha(45),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.title, size: 14, color: primaryColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    'HEADER',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: item.controller,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'Section Title (e.g. Dough, Sauce, Baking)',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+              tooltip: 'Remove section header',
+              onPressed: () => _removeInstruction(index),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final stepNum = _instructions.take(index + 1).where((s) => !s.isHeader).length;
+
+    return Container(
+      key: item.key,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B).withAlpha(128) : Colors.white,
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: ReorderableDragStartListener(
+              index: index,
+              child: Tooltip(
+                message: 'Drag to reorder step',
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.grab,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.drag_indicator,
+                      size: 20,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: CircleAvatar(
+              radius: 12,
+              backgroundColor: primaryColor.withAlpha(45),
+              child: Text(
+                '$stepNum',
+                style: TextStyle(fontSize: 11, color: primaryColor, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: item.controller,
+              maxLines: null,
+              decoration: const InputDecoration(
+                hintText: 'Step instructions...',
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+              tooltip: 'Remove step',
+              onPressed: () => _removeInstruction(index),
             ),
           ),
         ],
@@ -667,13 +1109,55 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
 
   void _addIngredient({required bool isHeader}) {
     setState(() {
-      _ingredients.add(RecipeIngredientItem(text: '', isHeader: isHeader));
+      _ingredients.add(_EditableRecipeItem(
+        key: UniqueKey(),
+        text: '',
+        isHeader: isHeader,
+      ));
+    });
+  }
+
+  void _removeIngredient(int index) {
+    setState(() {
+      final removed = _ingredients.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  void _onReorderIngredients(int oldIndex, int newIndex) {
+    setState(() {
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      final item = _ingredients.removeAt(oldIndex);
+      _ingredients.insert(newIndex, item);
     });
   }
 
   void _addInstruction({required bool isHeader}) {
     setState(() {
-      _instructions.add(RecipeInstructionItem(step: '', isHeader: isHeader));
+      _instructions.add(_EditableRecipeItem(
+        key: UniqueKey(),
+        text: '',
+        isHeader: isHeader,
+      ));
+    });
+  }
+
+  void _removeInstruction(int index) {
+    setState(() {
+      final removed = _instructions.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  void _onReorderInstructions(int oldIndex, int newIndex) {
+    setState(() {
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      final item = _instructions.removeAt(oldIndex);
+      _instructions.insert(newIndex, item);
     });
   }
 }
