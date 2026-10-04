@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import 'widgets/ai_extractor_dialog.dart';
 import 'widgets/ai_settings_dialog.dart';
 import 'widgets/category_filter_bar.dart';
+import 'widgets/git_branch_icon.dart';
 import 'widgets/git_settings_dialog.dart';
 import 'widgets/recipe_card.dart';
 import 'widgets/recipe_editor_dialog.dart';
@@ -113,8 +114,7 @@ class _HomePageState extends State<HomePage> {
                   side: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                 ),
-                icon: Icon(
-                  settingsProvider.gitConfig.hasToken ? Icons.lock_open_outlined : Icons.public,
+                icon: GitBranchIcon(
                   size: 16,
                   color: settingsProvider.gitConfig.hasToken ? AppTheme.accentSage : primaryColor,
                 ),
@@ -144,9 +144,9 @@ class _HomePageState extends State<HomePage> {
             )
           else
             IconButton(
-              tooltip: 'Git: ${settingsProvider.gitConfig.fullName}',
-              icon: Icon(
-                settingsProvider.gitConfig.hasToken ? Icons.lock_open_outlined : Icons.public,
+              tooltip: 'Git Settings: ${settingsProvider.gitConfig.fullName} (${settingsProvider.gitConfig.hasToken ? "Push Active" : "Read Only"})',
+              icon: GitBranchIcon(
+                size: 20,
                 color: settingsProvider.gitConfig.hasToken ? AppTheme.accentSage : primaryColor,
               ),
               onPressed: () {

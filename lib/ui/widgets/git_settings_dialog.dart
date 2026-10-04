@@ -6,6 +6,7 @@ import '../../providers/recipe_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/github_service.dart';
 import '../../theme/app_theme.dart';
+import 'git_branch_icon.dart';
 
 class GitSettingsDialog extends StatefulWidget {
   const GitSettingsDialog({super.key});
@@ -139,7 +140,7 @@ class _GitSettingsDialogState extends State<GitSettingsDialog> {
               // Header
               Row(
                 children: [
-                  Icon(Icons.commit, color: primaryColor, size: 28),
+                  GitBranchIcon(size: 26, color: primaryColor),
                   const SizedBox(width: 12),
                   const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
