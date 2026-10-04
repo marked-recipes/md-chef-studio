@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import 'widgets/ai_extractor_dialog.dart';
 import 'widgets/ai_settings_dialog.dart';
 import 'widgets/category_filter_bar.dart';
+import 'widgets/contribute_recipe_dialog.dart';
 import 'widgets/git_branch_icon.dart';
 import 'widgets/git_settings_dialog.dart';
 import 'widgets/recipe_card.dart';
@@ -153,6 +154,42 @@ class _HomePageState extends State<HomePage> {
                 showDialog(
                   context: context,
                   builder: (ctx) => const GitSettingsDialog(),
+                );
+              },
+            ),
+          const SizedBox(width: 4),
+
+          // Contribute Button (Responsive)
+          if (MediaQuery.of(context).size.width >= 1200)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                  side: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+                icon: Icon(Icons.volunteer_activism_outlined, size: 16, color: primaryColor),
+                label: const Text(
+                  'Contribute',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => const ContributeRecipeDialog(),
+                  );
+                },
+              ),
+            )
+          else
+            IconButton(
+              tooltip: 'Contribute Recipe to MarkedChef (Pull Request / Issue)',
+              icon: Icon(Icons.volunteer_activism_outlined, color: primaryColor, size: 20),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => const ContributeRecipeDialog(),
                 );
               },
             ),

@@ -9,6 +9,7 @@ import '../../providers/settings_provider.dart';
 import '../../services/web_interop/web_bridge.dart';
 import '../../theme/app_theme.dart';
 import 'commit_dialog.dart';
+import 'contribute_recipe_dialog.dart';
 import 'git_settings_dialog.dart';
 import 'recipe_editor_dialog.dart';
 
@@ -108,6 +109,18 @@ class _RecipeViewPaneState extends State<RecipeViewPane> {
                     tooltip: 'Download .md file',
                     icon: const Icon(Icons.download_outlined),
                     onPressed: () => _downloadMarkdownFile(widget.recipe),
+                  ),
+
+                  // Contribute / PR Button
+                  IconButton(
+                    tooltip: 'Contribute Recipe to MarkedChef',
+                    icon: Icon(Icons.volunteer_activism_outlined, color: primaryColor),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => ContributeRecipeDialog(initialRecipe: widget.recipe),
+                      );
+                    },
                   ),
 
                   const SizedBox(width: 8),

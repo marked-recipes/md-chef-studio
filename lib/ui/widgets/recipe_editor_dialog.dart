@@ -5,6 +5,7 @@ import '../../providers/recipe_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../theme/app_theme.dart';
 import 'commit_dialog.dart';
+import 'contribute_recipe_dialog.dart';
 import 'git_settings_dialog.dart';
 
 class _EditableRecipeItem {
@@ -356,8 +357,23 @@ class _RecipeEditorDialogState extends State<RecipeEditorDialog> with SingleTick
 
       if (mounted) {
         Navigator.of(context).pop();
+        final isFork = gitConfig.owner.toLowerCase() != 'marked-recipes';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Successfully committed "${recipeToSave.title}" to repository!')),
+          SnackBar(
+            content: Text('Committed "${recipeToSave.title}" to ${gitConfig.fullName}!'),
+            action: isFork
+                ? SnackBarAction(
+                    label: 'Contribute PR',
+                    textColor: Colors.amber,
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => ContributeRecipeDialog(initialRecipe: recipeToSave),
+                      );
+                    },
+                  )
+                : null,
+          ),
         );
       }
     } catch (e) {

@@ -225,4 +225,71 @@ class GitHubService {
       throw Exception('Failed to fork repository (${response.statusCode}): ${error['message'] ?? response.body}');
     }
   }
+
+  /// Generates the GitHub web URL to compare and open a Pull Request against marked-recipes/recipes
+  static String getPullRequestCompareUrl({
+    required String forkOwner,
+    String headBranch = 'main',
+    String baseOwner = 'marked-recipes',
+    String baseBranch = 'main',
+    String? title,
+    String? body,
+  }) {
+    var url = 'https://github.com/$baseOwner/recipes/compare/$baseBranch...$forkOwner:$headBranch?expand=1';
+    if (title != null && title.isNotEmpty) {
+      url += '&title=${Uri.encodeComponent(title)}';
+    }
+    if (body != null && body.isNotEmpty) {
+      url += '&body=${Uri.encodeComponent(body)}';
+    }
+    return url;
+  }
+
+  /// Generates a pre-filled GitHub issue URL on marked-recipes/recipes for non-technical submission
+  static String getIssueSubmissionUrl({
+    required String title,
+    required String markdownBody,
+  }) {
+    final bodyText = '### Recipe Proposal: $title\n\n'
+        '```markdown\n$markdownBody\n```\n\n'
+        '---\n*Submitted via MD Chef Studio*';
+    return 'https://github.com/marked-recipes/recipes/issues/new?'
+        'title=${Uri.encodeComponent('[New Recipe] $title')}&'
+        'body=${Uri.encodeComponent(bodyText)}';
+  }
+
+  /// Submits a Pull Request programmatically from the user\'s fork to marked-recipes/recipes
+  static Future<Map<String, dynamic>> createPullRequest({
+    required GitRepoConfig config,
+    required String title,
+    required String body,
+    String headBranch = 'main',
+    String baseOwner = 'marked-recipes',
+    String baseBranch = 'main',
+  }) async {
+    if (!config.hasToken) {
+      throw Exception('A GitHub Personal Access Token is required to submit a Pull Request via API.');
+    }
+
+    final url = Uri.parse('$baseUrl/repos/$baseOwner/recipes/pulls');
+    final payload = {
+      'title': title,
+      'body': body,
+      'head': '${config.owner}:$headBranch',
+      'base': baseBranch,
+    };
+
+    final response = await http.post(
+      url,
+      headers: _buildHeaders(config),
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception('Failed to create pull request (${response.statusCode}): ${error['message'] ?? response.body}');
+    }
+  }
 }
