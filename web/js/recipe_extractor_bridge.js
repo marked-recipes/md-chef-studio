@@ -93,6 +93,11 @@
       lineStr = lineStr.trim();
       if (lineStr.length === 0) continue;
 
+      // Filter out repetitive page numbers (e.g. 1/3, 2/3) and date stamps
+      if (/^\d+\s*\/\s*\d+$/.test(lineStr) || /^\d{1,2}\/\d{1,2}\/\d{2,4}(,\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?$/i.test(lineStr)) {
+        continue;
+      }
+
       if (prevY !== null) {
         const yGap = prevY - lineObj.y;
         if (yGap > 22.0) {
@@ -222,47 +227,257 @@
     throw new Error('Failed to fetch the URL. The target site blocked proxy access or CORS is strictly enforced. You can paste the page text or HTML directly.');
   };
 
-  // 4. In-Browser WASM / WebGPU / WebLLM Engine
+  // 4. In-Browser WASM / WebGPU Engine (Google MediaPipe GenAI + WebLLM)
   window.chefWebLLM = {
     engine: null,
+    engineType: null, // 'mediapipe' or 'webllm'
     currentModelId: null,
     isInitializing: false,
     progressText: '',
     progressPercent: 0,
+    localModelUrls: {},
 
     isWebGPUSupported: function () {
       return !!(navigator.gpu);
     },
 
-    loadModel: async function (modelId, onProgress) {
+    registerModelFileUrl: function (modelId, url) {
+      if (modelId && url) {
+        this.localModelUrls[modelId] = url;
+        const filename = modelId.split('/').pop();
+        this.localModelUrls[filename] = url;
+        return true;
+      }
+      return false;
+    },
+
+    pickModelFile: function (modelId) {
+      return new Promise((resolve, reject) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.task,.litertlm,.bin';
+        input.style.display = 'none';
+
+        input.onchange = (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) {
+            resolve(null);
+            return;
+          }
+          const blobUrl = URL.createObjectURL(file);
+          const targetId = modelId || file.name;
+          this.registerModelFileUrl(targetId, blobUrl);
+          this.registerModelFileUrl(file.name, blobUrl);
+          console.log(`[chefWebLLM] Registered disk model: ${file.name} (${(file.size / (1024 * 1024 * 1024)).toFixed(2)} GB)`);
+          document.body.removeChild(input);
+          resolve({
+            name: file.name,
+            size: file.size,
+            url: blobUrl,
+          });
+        };
+
+        input.oncancel = () => {
+          document.body.removeChild(input);
+          resolve(null);
+        };
+
+        document.body.appendChild(input);
+        input.click();
+      });
+    },
+
+    isModelDownloaded: async function (modelId) {
+      if (!modelId) return false;
+      const filename = modelId.split('/').pop();
+      if (this.localModelUrls[modelId] || this.localModelUrls[filename]) {
+        return true;
+      }
+
+      // Check MediaPipe task files
+      if (modelId.endsWith('.task')) {
+        try {
+          if (typeof caches !== 'undefined') {
+            const cache = await caches.open('chef/models');
+            const keys = await cache.keys();
+            if (keys.some((req) => req.url.includes(filename))) return true;
+          }
+        } catch (_) {}
+        return false;
+      }
+
+      // Check WebLLM cache
+      try {
+        const webllm = await import('https://esm.run/@mlc-ai/web-llm');
+        if (typeof webllm.hasModelInCache === 'function') {
+          const cached = await webllm.hasModelInCache(modelId);
+          if (cached) return true;
+        }
+      } catch (_) {}
+
+      try {
+        if (typeof caches !== 'undefined') {
+          const cache = await caches.open('webllm/model');
+          const keys = await cache.keys();
+          return keys.some((req) => req.url.includes(modelId));
+        }
+      } catch (_) {}
+
+      return false;
+    },
+
+    getDownloadedModels: async function (knownModelIds) {
+      const result = [];
+      const idsToCheck = (knownModelIds && Array.isArray(knownModelIds) && knownModelIds.length > 0)
+        ? knownModelIds
+        : [
+            'gemma-4-E2B-it-web.task',
+            'gemma-4-E4B-it-web.task'
+          ];
+      for (const id of idsToCheck) {
+        const isDown = await this.isModelDownloaded(id);
+        if (isDown) {
+          result.push(id);
+        }
+      }
+      return result;
+    },
+
+    deleteDownloadedModel: async function (modelId) {
+      if (!modelId) return false;
+      const filename = modelId.split('/').pop();
+      delete this.localModelUrls[modelId];
+      delete this.localModelUrls[filename];
+
+      let deleted = false;
+      try {
+        if (typeof caches !== 'undefined') {
+          const c1 = await caches.open('chef/models');
+          const k1 = await c1.keys();
+          for (const req of k1) {
+            if (req.url.includes(filename)) {
+              await c1.delete(req);
+              deleted = true;
+            }
+          }
+
+          const c2 = await caches.open('webllm/model');
+          const k2 = await c2.keys();
+          for (const req of k2) {
+            if (req.url.includes(modelId)) {
+              await c2.delete(req);
+              deleted = true;
+            }
+          }
+        }
+      } catch (_) {}
+
+      return deleted;
+    },
+
+    loadModel: async function (modelId, onProgress, fromDiskOnly, optionalUrl) {
       this.currentModelId = modelId;
       this.isInitializing = true;
       this.progressText = 'Starting model loader...';
       this.progressPercent = 0.05;
-      if (onProgress) onProgress(0.05, 'Checking WebGPU / WebAssembly support...');
 
-      try {
-        if (!navigator.gpu) {
-          throw new Error('WebGPU is not enabled or supported in this browser. Please use Chrome 113+, Edge 113+, or enable WebGPU flags in browser settings.');
+      if (!navigator.gpu) {
+        this.isInitializing = false;
+        throw new Error('WebGPU is not enabled or supported in this browser. Please use Chrome 113+, Edge 113+, or enable WebGPU flags in browser settings.');
+      }
+
+      const filename = modelId.split('/').pop();
+      const isMediaPipeTask = modelId.endsWith('.task') || (optionalUrl && optionalUrl.endsWith('.task'));
+
+      // If it is a MediaPipe .task model
+      if (isMediaPipeTask) {
+        let assetUrl = optionalUrl || this.localModelUrls[modelId] || this.localModelUrls[filename];
+
+        if (!assetUrl) {
+          if (onProgress) onProgress(0.05, `Please select ${filename} from disk...`);
+          const picked = await this.pickModelFile(modelId);
+          if (picked && picked.url) {
+            assetUrl = picked.url;
+          } else {
+            this.isInitializing = false;
+            throw new Error(`Model file "${filename}" was not selected. Please select the .task file from disk to load.`);
+          }
         }
 
-        // Dynamically import WebLLM from esm
+        if (onProgress) onProgress(0.15, 'Loading Google MediaPipe GenAI WebGPU runtime...');
+
+        try {
+          let mediapipe;
+          try {
+            mediapipe = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@latest/genai_bundle.mjs');
+          } catch (_) {
+            mediapipe = await import('https://esm.run/@mediapipe/tasks-genai');
+          }
+
+          if (onProgress) onProgress(0.3, 'Initializing MediaPipe WebAssembly execution engine...');
+
+          const genaiFileset = await mediapipe.FilesetResolver.forGenAiTasks(
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@latest/wasm'
+          );
+
+          if (onProgress) onProgress(0.5, `Streaming ${filename} into WebGPU memory...`);
+
+          this.engine = await mediapipe.LlmInference.createFromOptions(genaiFileset, {
+            baseOptions: {
+              modelAssetPath: assetUrl,
+            },
+            maxTokens: 4096,
+            temperature: 0.2,
+          });
+
+          this.engineType = 'mediapipe';
+          this.isInitializing = false;
+          this.progressText = `MediaPipe model (${filename}) loaded into WebGPU`;
+          this.progressPercent = 1.0;
+          if (onProgress) onProgress(1.0, `Ready (Loaded ${filename} from disk)`);
+          return true;
+        } catch (err) {
+          this.isInitializing = false;
+          console.error('Failed to load MediaPipe model:', err);
+          throw err;
+        }
+      }
+
+      // Otherwise fallback to WebLLM
+      const isDownloaded = await this.isModelDownloaded(modelId);
+      if (fromDiskOnly && !isDownloaded) {
+        this.isInitializing = false;
+        const errMsg = `Model "${modelId}" is not stored on local disk yet.`;
+        if (onProgress) onProgress(0.0, errMsg);
+        throw new Error(errMsg);
+      }
+
+      const initialStatus = isDownloaded
+        ? 'Loading previously downloaded model from local disk storage...'
+        : 'Connecting and downloading model from WebLLM CDN...';
+
+      if (onProgress) onProgress(0.05, initialStatus);
+
+      try {
         const webllm = await import('https://esm.run/@mlc-ai/web-llm');
 
         const initProgressCallback = (report) => {
           console.log('[WebLLM Progress]:', report.text);
-          this.progressText = report.text;
-          const match = report.text.match(/\[(\d+)\/(\d+)\]/);
+          let text = report.text || '';
+          if (isDownloaded && text.toLowerCase().includes('fetch')) {
+            text = text.replace(/fetch/gi, 'loading from disk');
+          }
+          this.progressText = text;
+          const match = text.match(/\[(\d+)\/(\d+)\]/);
           if (match) {
             this.progressPercent = parseInt(match[1], 10) / parseInt(match[2], 10);
           } else if (report.progress) {
             this.progressPercent = report.progress;
           }
-          if (onProgress) onProgress(this.progressPercent, report.text);
+          if (onProgress) onProgress(this.progressPercent, text);
 
-          // Dispatch event for Dart listener
           window.dispatchEvent(new CustomEvent('chef_webllm_progress', {
-            detail: { progress: this.progressPercent, text: report.text }
+            detail: { progress: this.progressPercent, text: text }
           }));
         };
 
@@ -270,10 +485,11 @@
           initProgressCallback: initProgressCallback,
         });
 
+        this.engineType = 'webllm';
         this.isInitializing = false;
-        this.progressText = 'Model loaded successfully';
+        this.progressText = isDownloaded ? 'Model loaded from disk' : 'Model loaded successfully';
         this.progressPercent = 1.0;
-        if (onProgress) onProgress(1.0, 'Ready');
+        if (onProgress) onProgress(1.0, isDownloaded ? 'Ready (Loaded from disk)' : 'Ready (Downloaded & Cached)');
         return true;
       } catch (err) {
         this.isInitializing = false;
@@ -284,9 +500,19 @@
 
     generate: async function (prompt, systemPrompt, temperature) {
       if (!this.engine) {
-        throw new Error('WebLLM model is not loaded. Please initialize the model first.');
+        throw new Error('In-browser model is not loaded. Please initialize the model first.');
       }
 
+      // MediaPipe GenAI generation
+      if (this.engineType === 'mediapipe') {
+        const formattedPrompt = systemPrompt
+          ? `<start_of_turn>user\n${systemPrompt}\n\n${prompt}<end_of_turn>\n<start_of_turn>model\n`
+          : `<start_of_turn>user\n${prompt}<end_of_turn>\n<start_of_turn>model\n`;
+
+        return await this.engine.generateResponse(formattedPrompt);
+      }
+
+      // WebLLM chat completions generation
       const messages = [];
       if (systemPrompt) {
         messages.push({ role: 'system', content: systemPrompt });
@@ -296,7 +522,7 @@
       const reply = await this.engine.chat.completions.create({
         messages: messages,
         temperature: temperature || 0.3,
-        max_tokens: 2048,
+        max_tokens: 4096,
       });
 
       return reply.choices[0].message.content;

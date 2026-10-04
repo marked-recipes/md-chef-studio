@@ -15,6 +15,8 @@ class AiSettingsDialog extends StatefulWidget {
 class _AiSettingsDialogState extends State<AiSettingsDialog> {
   late AIServiceType _activeType;
   late String _wasmModelId;
+  late bool _loadWasmFromDisk;
+  List<String> _downloadedModels = [];
   late TextEditingController _ollamaUrlController;
   late TextEditingController _ollamaModelController;
   late TextEditingController _geminiKeyController;
@@ -29,6 +31,7 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
     final cfg = context.read<SettingsProvider>().aiConfig;
     _activeType = cfg.activeType;
     _wasmModelId = cfg.wasmModelId;
+    _loadWasmFromDisk = cfg.loadWasmFromDisk;
     _ollamaUrlController = TextEditingController(text: cfg.ollamaUrl);
     _ollamaModelController = TextEditingController(text: cfg.ollamaModel);
     _geminiKeyController = TextEditingController(text: cfg.geminiApiKey);
@@ -36,6 +39,31 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
     _openAiUrlController = TextEditingController(text: cfg.openAiUrl);
     _openAiKeyController = TextEditingController(text: cfg.openAiApiKey);
     _openAiModelController = TextEditingController(text: cfg.openAiModel);
+
+    _refreshDownloadedModels();
+  }
+
+  Future<void> _refreshDownloadedModels() async {
+    final list = await InBrowserWasmService.getDownloadedModels();
+    if (mounted) {
+      setState(() {
+        _downloadedModels = list;
+        // If user has downloaded models and current model is downloaded, default to loading from disk
+        if (_downloadedModels.contains(_wasmModelId) && !_loadWasmFromDisk) {
+          _loadWasmFromDisk = true;
+        }
+      });
+    }
+  }
+
+  Future<void> _deleteDownloadedModel(String modelId) async {
+    await InBrowserWasmService.deleteDownloadedModel(modelId);
+    await _refreshDownloadedModels();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Removed $modelId from local disk storage.')),
+      );
+    }
   }
 
   @override
@@ -54,6 +82,7 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
     final newCfg = AIConfig(
       activeType: _activeType,
       wasmModelId: _wasmModelId,
+      loadWasmFromDisk: _loadWasmFromDisk,
       ollamaUrl: _ollamaUrlController.text.trim(),
       ollamaModel: _ollamaModelController.text.trim(),
       geminiApiKey: _geminiKeyController.text.trim(),
@@ -142,24 +171,152 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
                         children: [
                           Icon(hasWebGpu ? Icons.check_circle : Icons.info_outline, size: 16, color: hasWebGpu ? AppTheme.accentSage : Colors.amber),
                           const SizedBox(width: 8),
-                          Text(
-                            hasWebGpu ? 'WebGPU Supported on this browser' : 'WebGPU not detected; rule-based WASM fallback will be used',
-                            style: TextStyle(fontSize: 12, color: hasWebGpu ? AppTheme.accentSage : Colors.amber),
+                          Expanded(
+                            child: Text(
+                              hasWebGpu ? 'WebGPU Supported on this browser' : 'WebGPU not detected; rule-based WASM fallback will be used',
+                              style: TextStyle(fontSize: 12, color: hasWebGpu ? AppTheme.accentSage : Colors.amber),
+                            ),
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(height: 14),
+
+                    // Model Loading Mode: Load from Disk vs Download
+                    Row(
+                      children: [
+                        const Text('Model Loading Source:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        ChoiceChip(
+                          avatar: const Icon(Icons.storage, size: 14),
+                          label: const Text('Load from Disk', style: TextStyle(fontSize: 12)),
+                          selected: _loadWasmFromDisk,
+                          selectedColor: primaryColor.withAlpha(50),
+                          onSelected: (val) {
+                            setState(() => _loadWasmFromDisk = true);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          avatar: const Icon(Icons.download, size: 14),
+                          label: const Text('Download / CDN', style: TextStyle(fontSize: 12)),
+                          selected: !_loadWasmFromDisk,
+                          selectedColor: primaryColor.withAlpha(50),
+                          onSelected: (val) {
+                            setState(() => _loadWasmFromDisk = false);
+                          },
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
+
                     DropdownButtonFormField<String>(
                       initialValue: _wasmModelId,
                       decoration: const InputDecoration(labelText: 'Default In-Browser Model'),
                       items: AIConfig.wasmModelOptions.map((opt) {
-                        return DropdownMenuItem(value: opt['id'], child: Text('${opt['name']} (${opt['size']})'));
+                        final isDownloaded = _downloadedModels.contains(opt['id']);
+                        final statusPrefix = isDownloaded ? '💾 [On Disk]' : '⬇️ [Download]';
+                        return DropdownMenuItem(
+                          value: opt['id'],
+                          child: Text('$statusPrefix ${opt['name']} (${opt['size']})'),
+                        );
                       }).toList(),
                       onChanged: (val) {
-                        if (val != null) setState(() => _wasmModelId = val);
+                        if (val != null) {
+                          setState(() {
+                            _wasmModelId = val;
+                            if (_downloadedModels.contains(val)) {
+                              _loadWasmFromDisk = true;
+                            }
+                          });
+                        }
                       },
                     ),
+
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.folder_open, size: 16),
+                          label: const Text('Select Model File (.task) from Disk'),
+                          onPressed: () async {
+                            final res = await InBrowserWasmService.pickModelFile(_wasmModelId);
+                            if (res != null && res['name'] != null) {
+                              final name = res['name'] as String;
+                              setState(() {
+                                _wasmModelId = name;
+                                _loadWasmFromDisk = true;
+                              });
+                              await _refreshDownloadedModels();
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Loaded model file from disk: $name')),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Downloaded Models on Disk section
+                    if (_downloadedModels.isNotEmpty) ...[
+                      const Text(
+                        'Models Stored on Local Disk (Ready to Load):',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _downloadedModels.map((id) {
+                          final opt = AIConfig.getWasmModelOption(id);
+                          final displayName = opt?['name']?.split('(').first.trim() ?? id;
+                          final isCurrent = _wasmModelId == id;
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isCurrent ? primaryColor.withAlpha(35) : (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isCurrent ? primaryColor : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.storage, size: 14, color: isCurrent ? primaryColor : Colors.grey),
+                                const SizedBox(width: 6),
+                                Text(
+                                  displayName,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () => _deleteDownloadedModel(id),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(2),
+                                    child: Icon(Icons.close, size: 14, color: Colors.grey),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ] else ...[
+                      Text(
+                        '💡 No models downloaded to disk yet. Models will be saved to disk once downloaded for offline loading.',
+                        style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: isDark ? Colors.white60 : Colors.black54),
+                      ),
+                    ],
                   ],
                 ),
               ),

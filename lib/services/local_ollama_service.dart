@@ -34,6 +34,8 @@ class LocalOllamaService {
       'stream': false,
       'options': {
         'temperature': 0.2,
+        'num_ctx': 8192,
+        'num_predict': 4096,
       },
     };
 

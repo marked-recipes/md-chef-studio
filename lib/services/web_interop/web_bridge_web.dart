@@ -62,8 +62,115 @@ class WebBridge {
     return null;
   }
 
+  static Future<bool> isModelDownloaded(String modelId) async {
+    try {
+      final jsWindow = web.window as js.JSObject;
+      if (jsu.JSObjectUnsafeUtilExtension(jsWindow).has('chefWebLLM')) {
+        final chefObj = jsu.JSObjectUnsafeUtilExtension(jsWindow).getProperty('chefWebLLM'.toJS) as js.JSObject;
+        if (jsu.JSObjectUnsafeUtilExtension(chefObj).has('isModelDownloaded')) {
+          final promise = jsu.JSObjectUnsafeUtilExtension(chefObj).callMethod(
+            'isModelDownloaded'.toJS,
+            modelId.toJS,
+          ) as js.JSPromise;
+          final result = await promise.toDart;
+          return (result as js.JSBoolean).toDart;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<List<String>> getDownloadedModels([List<String>? knownModelIds]) async {
+    try {
+      final jsWindow = web.window as js.JSObject;
+      if (jsu.JSObjectUnsafeUtilExtension(jsWindow).has('chefWebLLM')) {
+        final chefObj = jsu.JSObjectUnsafeUtilExtension(jsWindow).getProperty('chefWebLLM'.toJS) as js.JSObject;
+        if (jsu.JSObjectUnsafeUtilExtension(chefObj).has('getDownloadedModels')) {
+          final jsKnown = (knownModelIds ?? []).map((e) => e.toJS).toList().toJS;
+          final promise = jsu.JSObjectUnsafeUtilExtension(chefObj).callMethod(
+            'getDownloadedModels'.toJS,
+            jsKnown,
+          ) as js.JSPromise;
+          final result = await promise.toDart;
+          final jsArray = result as js.JSArray;
+          final list = <String>[];
+          for (int i = 0; i < jsArray.length; i++) {
+            final item = jsArray[i];
+            if (item != null) {
+              list.add((item as js.JSString).toDart);
+            }
+          }
+          return list;
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  static Future<bool> deleteDownloadedModel(String modelId) async {
+    try {
+      final jsWindow = web.window as js.JSObject;
+      if (jsu.JSObjectUnsafeUtilExtension(jsWindow).has('chefWebLLM')) {
+        final chefObj = jsu.JSObjectUnsafeUtilExtension(jsWindow).getProperty('chefWebLLM'.toJS) as js.JSObject;
+        if (jsu.JSObjectUnsafeUtilExtension(chefObj).has('deleteDownloadedModel')) {
+          final promise = jsu.JSObjectUnsafeUtilExtension(chefObj).callMethod(
+            'deleteDownloadedModel'.toJS,
+            modelId.toJS,
+          ) as js.JSPromise;
+          final result = await promise.toDart;
+          return (result as js.JSBoolean).toDart;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<Map<String, dynamic>?> pickModelFile([String? modelId]) async {
+    try {
+      final jsWindow = web.window as js.JSObject;
+      if (jsu.JSObjectUnsafeUtilExtension(jsWindow).has('chefWebLLM')) {
+        final chefObj = jsu.JSObjectUnsafeUtilExtension(jsWindow).getProperty('chefWebLLM'.toJS) as js.JSObject;
+        if (jsu.JSObjectUnsafeUtilExtension(chefObj).has('pickModelFile')) {
+          final arg = modelId != null ? modelId.toJS : ''.toJS;
+          final promise = jsu.JSObjectUnsafeUtilExtension(chefObj).callMethod(
+            'pickModelFile'.toJS,
+            arg,
+          ) as js.JSPromise;
+          final result = await promise.toDart;
+          if (result != null) {
+            final obj = result as js.JSObject;
+            final name = (jsu.JSObjectUnsafeUtilExtension(obj).getProperty('name'.toJS) as js.JSString).toDart;
+            final url = (jsu.JSObjectUnsafeUtilExtension(obj).getProperty('url'.toJS) as js.JSString).toDart;
+            final size = (jsu.JSObjectUnsafeUtilExtension(obj).getProperty('size'.toJS) as js.JSNumber).toDartInt;
+            return {'name': name, 'url': url, 'size': size};
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static bool registerModelFileUrl(String modelId, String url) {
+    try {
+      final jsWindow = web.window as js.JSObject;
+      if (jsu.JSObjectUnsafeUtilExtension(jsWindow).has('chefWebLLM')) {
+        final chefObj = jsu.JSObjectUnsafeUtilExtension(jsWindow).getProperty('chefWebLLM'.toJS) as js.JSObject;
+        if (jsu.JSObjectUnsafeUtilExtension(chefObj).has('registerModelFileUrl')) {
+          final res = jsu.JSObjectUnsafeUtilExtension(chefObj).callMethod(
+            'registerModelFileUrl'.toJS,
+            modelId.toJS,
+            url.toJS,
+          ) as js.JSBoolean;
+          return res.toDart;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
   static Future<void> loadWebLlmModel({
     required String modelId,
+    bool fromDiskOnly = false,
     required void Function(double progress, String status) onProgress,
   }) async {
     final jsWindow = web.window as js.JSObject;
@@ -89,10 +196,11 @@ class WebBridge {
       'loadModel'.toJS,
       modelId.toJS,
       jsCallback,
+      fromDiskOnly.toJS,
     ) as js.JSPromise;
 
     await promise.toDart;
-    onProgress(1.0, 'Model loaded successfully into WebGPU memory');
+    onProgress(1.0, fromDiskOnly ? 'Model loaded from disk into WebGPU memory' : 'Model loaded successfully into WebGPU memory');
   }
 
   static Future<String?> generateWebLlm({

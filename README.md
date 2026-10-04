@@ -3,7 +3,7 @@
 A sleek Flutter Web application for maintaining, creating, editing, and deleting cooking recipes in the Markdown format of the official [`marked-recipes/recipes`](https://github.com/marked-recipes/recipes) repository (or any personal fork). "MD" stands for Markdown!
 
 Includes an **AI Recipe Studio** that extracts structured recipes from **PDFs, HTML files, Web URLs (URIs), and text** using:
-1. 🌐 **In-Browser WASM / WebGPU**: Run Google **Gemma 4 / 2B** or IBM **Granite 4.2 / 3B** models directly in your browser tab without sending recipe data to a server!
+1. 🌐 **In-Browser WASM / WebGPU**: Run Google **Gemma 4-E2B** or **Gemma 4-E4B** models directly in your browser tab (loaded from disk or downloaded) without sending recipe data to a server!
 2. 💻 **Local AI (Ollama)**: Connect to your local Ollama instance (`http://localhost:11434`) running `gemma4`, `granite4.2`, `granite3-dense`, `llama3.2`, etc.
 3. ☁️ **Remote Cloud AI**: Google Gemini API (`gemini-2.0-flash`, `gemini-1.5-flash`) or OpenAI / OpenRouter (`ibm/granite-3-8b-instruct`, `google/gemma-2-9b-it`).
 4. 🚀 **Deployable to Netlify** with pre-configured `netlify.toml`, SPA redirects, and WASM/WebGPU cross-origin isolation headers.
@@ -80,7 +80,7 @@ credit: Carl
   - 📄 **HTML Pages & DOM**: Strips ads, navigation, and boilerplate, extracting clean recipes and Schema.org `Recipe` JSON-LD.
   - ✍️ **Raw Text / Transcripts**: Paste raw text, cooking notes, or OCR text.
 - **AI Engines**:
-  - **In-Browser WASM / WebGPU**: WebLLM engine executing **Gemma 4/2B** (`gemma-2-2b-it-q4f16_1-MLC`) and **Granite 4.2/3B** (`granite-3.0-2b-instruct-q4f16_1-MLC`) with WebGPU acceleration and download progress tracking.
+  - **In-Browser WASM / WebGPU**: MediaPipe & WebGPU engine executing **Gemma 4-E2B IT** (`gemma-4-E2B-it-web.task`) and **Gemma 4-E4B IT** (`gemma-4-E4B-it-web.task`) loaded directly from local disk (`/Users/moscac/data/models`) or web cache.
   - **Local Ollama**: Fast local inference at `http://localhost:11434`.
   - **Remote Cloud AI**: Google Gemini & OpenRouter / OpenAI.
 - **Review & Commit**: After extraction, preview the generated recipe and open it in the editor with one click to commit it to your Git repository.

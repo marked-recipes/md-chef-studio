@@ -7,6 +7,30 @@ class StorageService {
   static const String _keyGitConfig = 'md_chef_git_config';
   static const String _keyAiConfig = 'md_chef_ai_config';
   static const String _keyThemeMode = 'md_chef_theme_mode';
+  static const String _keyDownloadedWasmModels = 'md_chef_downloaded_wasm_models';
+
+  static Future<List<String>> loadDownloadedModels() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_keyDownloadedWasmModels) ?? [];
+  }
+
+  static Future<void> saveDownloadedModel(String modelId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_keyDownloadedWasmModels) ?? [];
+    if (!list.contains(modelId)) {
+      list.add(modelId);
+      await prefs.setStringList(_keyDownloadedWasmModels, list);
+    }
+  }
+
+  static Future<void> removeDownloadedModel(String modelId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_keyDownloadedWasmModels) ?? [];
+    if (list.contains(modelId)) {
+      list.remove(modelId);
+      await prefs.setStringList(_keyDownloadedWasmModels, list);
+    }
+  }
 
   static Future<GitRepoConfig> loadGitConfig() async {
     final prefs = await SharedPreferences.getInstance();

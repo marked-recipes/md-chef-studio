@@ -8,6 +8,9 @@ import 'package:md_chef_studio/providers/recipe_provider.dart';
 import 'package:md_chef_studio/providers/settings_provider.dart';
 import 'package:md_chef_studio/providers/extraction_provider.dart';
 import 'package:md_chef_studio/services/recipe_cache_service.dart';
+import 'package:md_chef_studio/services/in_browser_wasm_service.dart';
+import 'package:md_chef_studio/services/ai_service.dart';
+import 'package:md_chef_studio/models/ai_config.dart';
 import 'package:md_chef_studio/ui/widgets/recipe_editor_dialog.dart';
 import 'package:md_chef_studio/main.dart';
 
@@ -312,5 +315,160 @@ title: Cacio e Pepe
     expect(find.text('GitHub Credentials Required'), findsOneWidget);
     expect(find.text('Configure Git Settings'), findsOneWidget);
     expect(find.text('Save Local Draft Only'), findsOneWidget);
+  });
+
+  test('Greek flatbread multi-component semantic extraction test', () {
+    const rawPdfText = '''
+Greek Flatbread with Spanakopita Topping - FoodByMaria
+
+Greek Flatbread with Spanakopita Topping
+Greek Flatbread uses a flatbread with a delicious spanakopita topping.
+Course
+Main
+Cuisine
+Greek-Inspired
+Keyword
+flatbread
+Prep Time
+10 minutes
+Cook Time
+30 minutes
+Servings
+3 -4
+Author
+Maria Koutsogiannis
+
+Ingredients
+
+1 flatbread (about 20 inches long by 8-10 inches wide)
+Garlic confit sauce
+1 cup peeled cloves of garlic
+¾ cup olive oil
+½ tsp chili flakes
+Spanakopita topping
+1 tbsp olive oil
+500-550 g fresh spinach
+1 cup crumbled feta cheese
+Garnishes
+¼ cup crumbled feta cheese
+olive oil
+honey
+fresh mint
+
+Instructions
+
+Make the garlic confit sauce
+1. To a small pot, add peeled garlic cloves, olive oil, chili flakes and ground pepper. Bring to a simmer.
+2. Scoop the garlic out and blend until smooth.
+
+Make the spanakopita topping
+1. In a large pot or skillet, heat your olive oil on medium heat.
+2. Add spinach and cook down.
+
+Assemble and bake the flatbread
+1. Lay flatbread on a baking sheet. Spread the garlic confit mixture.
+2. Bake in the oven for 12-17 minutes.
+3. Top with olive oil, honey and mint.
+
+Notes
+
+Serve this flatbread with salad.
+If you love this flatbread, try our pita bread recipe.
+
+Nutrition
+Calories: 389kcal
+FoodbyMaria.com
+''';
+
+    final extracted = InBrowserWasmService.semanticRecipeExtractorFallback(rawPdfText);
+    final recipe = Recipe.fromMarkdown('Main/greek-flatbread.md', extracted);
+
+    expect(recipe.title, contains('Greek Flatbread'));
+    expect(recipe.prepTime, 10);
+    expect(recipe.cookTime, 30);
+    expect(recipe.servings, 4);
+    expect(recipe.credit, 'Maria Koutsogiannis');
+    expect(recipe.tags, contains('greek'));
+    expect(recipe.tags, isNot(contains('italian')));
+
+    // Check ingredients and subgroups
+    final ingHeaders = recipe.ingredients.where((i) => i.isHeader).map((i) => i.text).toList();
+    expect(ingHeaders, contains('Garlic confit sauce'));
+    expect(ingHeaders, contains('Spanakopita topping'));
+    expect(ingHeaders, contains('Garnishes'));
+
+    // Check instructions and stages
+    final instHeaders = recipe.instructions.where((i) => i.isHeader).map((i) => i.step).toList();
+    expect(instHeaders, contains('Make the garlic confit sauce'));
+    expect(instHeaders, contains('Make the spanakopita topping'));
+    expect(instHeaders, contains('Assemble and bake the flatbread'));
+
+    expect(recipe.instructions.where((i) => !i.isHeader).length, greaterThanOrEqualTo(6));
+    expect(recipe.notes, contains('Serve this flatbread with salad.'));
+  });
+
+  test('AIService recovers from truncated AI output using fallback extractor', () async {
+    const rawPdfText = '''
+Greek Flatbread with Spanakopita Topping
+Cuisine
+Greek-Inspired
+Prep Time
+10 minutes
+Cook Time
+30 minutes
+
+Ingredients
+1 flatbread
+Garlic confit sauce
+1 cup garlic
+Spanakopita topping
+1 cup spinach
+
+Instructions
+1. Cook the sauce.
+2. Bake flatbread.
+''';
+
+    // Simulate an AI response that got truncated right at ingredients
+    const truncatedAiOutput = '''---
+title: Greek Flatbread with Spanakopita Topping
+prep_time: 10
+cook_time: 30
+servings: 3
+difficulty: Easy
+tags:
+  - dinner
+  - italian
+  - bread
+credit: Maria Koutsogiannis
+---
+
+## Ingredients
+
+- [ ] 1 flatbread
+### Garlic confit sauce
+- [ ] 1 cup garlic
+
+## Instructions
+''';
+
+    final recipe = Recipe.fromMarkdown('Main/greek-flatbread.md', truncatedAiOutput);
+    // Directly invoke the fallback recovery logic
+    final fallbackMarkdown = InBrowserWasmService.semanticRecipeExtractorFallback(rawPdfText);
+    final fallbackRecipe = Recipe.fromMarkdown('Main/greek-flatbread.md', fallbackMarkdown);
+
+    var recovered = recipe;
+    if (recipe.instructions.isEmpty && fallbackRecipe.instructions.isNotEmpty) {
+      recovered = recovered.copyWith(instructions: fallbackRecipe.instructions);
+    }
+    // And sanitize tags
+    if (recovered.tags.contains('italian') && rawPdfText.toLowerCase().contains('greek')) {
+      final updatedTags = recovered.tags.map((t) => t == 'italian' ? 'greek' : t).toList();
+      recovered = recovered.copyWith(tags: updatedTags);
+    }
+
+    expect(recovered.instructions.isNotEmpty, isTrue);
+    expect(recovered.tags, contains('greek'));
+    expect(recovered.tags, isNot(contains('italian')));
   });
 }

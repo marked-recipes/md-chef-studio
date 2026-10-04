@@ -15,6 +15,7 @@ class ExtractionProvider with ChangeNotifier {
   String _inputMode = 'url'; // 'file', 'url', 'text'
   String _rawSourcePreview = '';
   String _detectedUrl = '';
+  List<String> _downloadedModels = [];
 
   bool get isExtracting => _isExtracting;
   double get progress => _progress;
@@ -24,6 +25,18 @@ class ExtractionProvider with ChangeNotifier {
   String get inputMode => _inputMode;
   String get rawSourcePreview => _rawSourcePreview;
   String get detectedUrl => _detectedUrl;
+  List<String> get downloadedModels => _downloadedModels;
+
+  ExtractionProvider() {
+    refreshDownloadedModels();
+  }
+
+  bool isModelDownloaded(String modelId) => _downloadedModels.contains(modelId);
+
+  Future<void> refreshDownloadedModels() async {
+    _downloadedModels = await InBrowserWasmService.getDownloadedModels();
+    notifyListeners();
+  }
 
   void setInputMode(String mode) {
     _inputMode = mode;
@@ -42,31 +55,52 @@ class ExtractionProvider with ChangeNotifier {
   }
 
   /// Ensure In-Browser WASM model is ready if using InBrowser type
-  Future<void> prepareWasmModel(String modelId) async {
+  Future<void> prepareWasmModel(String modelId, {bool fromDiskOnly = false}) async {
     if (InBrowserWasmService.isModelLoaded && InBrowserWasmService.loadedModelId == modelId) {
       return;
     }
 
     _isExtracting = true;
     _progress = 0.1;
-    _statusMessage = 'Initializing In-Browser WASM model ($modelId)...';
+    final isDownloaded = _downloadedModels.contains(modelId);
+    _statusMessage = fromDiskOnly || isDownloaded
+        ? 'Loading model from local disk storage ($modelId)...'
+        : 'Initializing In-Browser WASM model ($modelId)...';
     notifyListeners();
 
     try {
       await InBrowserWasmService.loadModel(
         modelId: modelId,
+        fromDiskOnly: fromDiskOnly,
         onProgress: (prog, status) {
           _progress = prog;
           _statusMessage = status;
           notifyListeners();
         },
       );
+      await refreshDownloadedModels();
     } catch (e) {
       debugPrint('Model prepare error: $e');
+      _errorMessage = e.toString().replaceAll('Exception:', '').trim();
     } finally {
       _isExtracting = false;
       notifyListeners();
     }
+  }
+
+  /// Delete a downloaded model from disk storage
+  Future<void> deleteDownloadedModel(String modelId) async {
+    await InBrowserWasmService.deleteDownloadedModel(modelId);
+    await refreshDownloadedModels();
+  }
+
+  /// Pick model file (.task) directly from disk
+  Future<Map<String, dynamic>?> pickModelFile([String? modelId]) async {
+    final res = await InBrowserWasmService.pickModelFile(modelId);
+    if (res != null) {
+      await refreshDownloadedModels();
+    }
+    return res;
   }
 
   /// Extract from PDF bytes
@@ -174,15 +208,22 @@ class ExtractionProvider with ChangeNotifier {
     // If in-browser WASM, handle progress callback
     if (config.activeType == AIServiceType.inBrowserWasm &&
         (!InBrowserWasmService.isModelLoaded || InBrowserWasmService.loadedModelId != config.wasmModelId)) {
-      _updateStatus(0.4, 'Loading ${config.wasmModelId} into browser WebGPU/WASM...');
+      final isDownloaded = _downloadedModels.contains(config.wasmModelId);
+      final initialMsg = config.loadWasmFromDisk || isDownloaded
+          ? 'Loading previously downloaded ${config.wasmModelId} from disk...'
+          : 'Loading ${config.wasmModelId} into browser WebGPU/WASM...';
+      _updateStatus(0.4, initialMsg);
+
       await InBrowserWasmService.loadModel(
         modelId: config.wasmModelId,
+        fromDiskOnly: config.loadWasmFromDisk,
         onProgress: (prog, status) {
           _progress = 0.4 + (prog * 0.4);
           _statusMessage = 'In-Browser WASM: $status';
           notifyListeners();
         },
       );
+      await refreshDownloadedModels();
     }
 
     _updateStatus(0.85, 'AI is formulating MarkedChef recipe structure...');

@@ -6,56 +6,46 @@ import 'remote_ai_service.dart';
 
 class AIService {
   static const String systemInstruction = '''
-You are an expert culinary data extractor for MarkedChef (https://github.com/marked-recipes/recipes).
-Extract the recipe from the provided input and output strictly in MarkedChef Markdown format:
+You are an expert recipe extractor for MarkedChef (https://github.com/marked-recipes/recipes).
+Extract the recipe from the provided input and output strictly in MarkedChef Markdown format.
 
+Required Format:
 ---
-title: Title of Recipe
-prep_time: 15
-cook_time: 25
-servings: 4
-difficulty: Easy
+title: <Recipe Title>
+prep_time: <prep time in minutes as integer, or omit>
+cook_time: <cook time in minutes as integer, or omit>
+servings: <servings count as integer, e.g. 4>
+difficulty: <Easy, Medium, or Hard based on preparation complexity>
 tags:
-  - dinner
-  - italian
-credit: Chef Name or Site
-source: https://example.com/recipe
+  - <exact cuisine strictly from recipe in lowercase, e.g. "greek" for Greek recipes; NEVER "italian" unless explicitly Italian>
+  - <course or category, e.g. main, dinner, appetizer>
+  - <recipe keyword, e.g. flatbread>
+credit: <author or site name>
+source: <source url if present in text>
 ---
 
 ## Ingredients
 
-- [ ] 1 flatbread (about 20 inches)
+- [ ] <general ingredient>
 
-### Sauce (optional subgroup)
-- [ ] 1 cup ingredient
-- [ ] 2 tablespoons olive oil
-
-### Topping (optional subgroup)
-- [ ] 1 cup crumbled feta cheese
-
-### Garnishes (optional subgroup)
-- [ ] 1/4 cup crumbled feta cheese
-- [ ] olive oil
+### <Component Subgroup Name (e.g. Garlic confit sauce, Spanakopita topping, Garnishes)>
+- [ ] <subgroup ingredient>
 
 ## Instructions
 
-### Make the sauce (optional stage)
-- [ ] Step 1 description.
-- [ ] Step 2 description.
-
-### Assemble and Bake (optional stage)
-- [ ] Step 3 description.
+### <Stage Name (e.g. Make the garlic confit sauce, Make the spanakopita topping, Assemble and bake the flatbread)>
+- [ ] <detailed step description>
 
 ## Notes
-* Helpful notes, tips, variations, or serving suggestions.
+* <helpful tip, variation, or serving suggestion>
 
-Critical Extraction Rules:
-- Completeness: Read the ENTIRE document across ALL pages. Never truncate or omit instruction steps or notes.
-- Subgroups & Multi-stage ingredients: Recipes frequently use ingredients in multiple components (e.g. olive oil or feta cheese used in both a sauce and a garnish). Group ingredients under "### Subgroup Name" headers (e.g. "### Garlic confit sauce", "### Spanakopita topping", "### Garnishes"). Do NOT deduplicate or delete ingredients that legitimately appear in different subgroups!
-- Instruction stages: If instructions have stage titles (e.g. "Make the garlic confit sauce", "Make the topping", "Assemble and bake"), preserve them as "### Stage Name" headers. Every single instruction step MUST be formatted as "- [ ] Step description."
-- Notes: Capture all recipe notes, serving recommendations, and variations under "## Notes" as bullet points with "* ". Exclude raw nutritional/calorie macro breakdowns.
-- Metadata: Extract prep_time, cook_time, servings as integer numbers whenever possible. Extract author into credit.
-- Output: Do NOT wrap your whole response in triple backticks. Return the raw markdown directly.
+Rules:
+1. MANDATORY COMPLETENESS: Extract EVERY single ingredient and EVERY single instruction step across ALL pages of the input text. NEVER truncate, omit, or stop early.
+2. Accurate Tags: Infer tags strictly from the recipe's stated cuisine and keywords. If the cuisine is Greek or Greek-Inspired, the cuisine tag MUST be "greek", NEVER "italian".
+3. Checkboxes: Every ingredient and instruction step must start with "- [ ] ".
+4. Subgroups & Stages: Always preserve component ingredient headers (### Component) and instruction stage headers (### Stage). Do not drop duplicate ingredients that belong to separate subgroups (e.g. feta in topping vs garnish).
+5. Exclude nutritional breakdowns (calories/macros) from the notes.
+6. Return only the raw Markdown with frontmatter. Do not wrap in markdown code blocks.
 ''';
 
   /// Extracts recipe from raw source text using the configured AI engine
@@ -132,16 +122,41 @@ $rawContent
         : 'Main';
 
     // Parse into Recipe object
-    final recipe = Recipe.fromMarkdown('$cat/extracted-recipe.md', rawResult);
+    var recipe = Recipe.fromMarkdown('$cat/extracted-recipe.md', rawResult);
+
+    // Robust validation and fallback recovery:
+    // If the AI output truncated or omitted instructions/ingredients, use the semantic extractor fallback to recover
+    final hasInputInstructions = RegExp(r'\b(instructions|directions|method|steps|preparation|make the|assemble)\b', caseSensitive: false).hasMatch(rawContent);
+    if ((recipe.instructions.isEmpty && hasInputInstructions) || recipe.ingredients.isEmpty || recipe.ingredients.length < 3) {
+      final fallbackMarkdown = InBrowserWasmService.semanticRecipeExtractorFallback(rawContent);
+      final fallbackRecipe = Recipe.fromMarkdown('$cat/extracted-recipe.md', fallbackMarkdown);
+
+      if (recipe.instructions.isEmpty && fallbackRecipe.instructions.isNotEmpty) {
+        recipe = recipe.copyWith(instructions: fallbackRecipe.instructions);
+      }
+      if ((recipe.ingredients.isEmpty || recipe.ingredients.length < 3) && fallbackRecipe.ingredients.length > recipe.ingredients.length) {
+        recipe = recipe.copyWith(ingredients: fallbackRecipe.ingredients);
+      }
+      if ((recipe.notes == null || recipe.notes!.isEmpty) && fallbackRecipe.notes != null && fallbackRecipe.notes!.isNotEmpty) {
+        recipe = recipe.copyWith(notes: fallbackRecipe.notes);
+      }
+    }
+
+    // Sanitize hallucinated cuisine tags
+    final lowerRaw = rawContent.toLowerCase();
+    if (recipe.tags.contains('italian') && !lowerRaw.contains('italian') && (lowerRaw.contains('greek') || lowerRaw.contains('greek-inspired'))) {
+      final updatedTags = recipe.tags.map((t) => t == 'italian' ? 'greek' : t).toList();
+      recipe = recipe.copyWith(tags: updatedTags);
+    }
 
     // If sourceUrl provided and recipe source was empty, populate it
     if ((recipe.source == null || recipe.source!.isEmpty) && sourceUrl != null && sourceUrl.isNotEmpty) {
-      recipe.source = sourceUrl;
+      recipe = recipe.copyWith(source: sourceUrl);
     }
 
     // Generate proper file slug
     final slug = Recipe.slugify(recipe.title);
-    recipe.fileName = '$slug.md';
+    recipe = recipe.copyWith(fileName: '$slug.md');
 
     return recipe;
   }

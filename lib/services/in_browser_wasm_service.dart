@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'web_interop/web_bridge.dart';
+import 'storage_service.dart';
 
 class InBrowserWasmService {
   static bool isModelLoaded = false;
   static String? loadedModelId;
+  static bool isLoadedFromDisk = false;
 
   /// Checks if browser supports WebGPU
   static bool isWebGPUSupported() {
@@ -12,31 +14,107 @@ class InBrowserWasmService {
     return WebBridge.isWebGpuSupported();
   }
 
-  /// Loads an In-Browser LLM (Gemma / Granite / Llama) via WebLLM WASM/WebGPU
+  /// Checks if a model is stored/cached on disk
+  static Future<bool> isModelDownloaded(String modelId) async {
+    if (kIsWeb) {
+      final inBrowserCache = await WebBridge.isModelDownloaded(modelId);
+      if (inBrowserCache) {
+        await StorageService.saveDownloadedModel(modelId);
+        return true;
+      }
+    }
+    final savedModels = await StorageService.loadDownloadedModels();
+    return savedModels.contains(modelId);
+  }
+
+  /// Returns list of all model IDs stored on disk
+  static Future<List<String>> getDownloadedModels([List<String>? knownModelIds]) async {
+    final results = <String>{};
+    if (kIsWeb) {
+      final webModels = await WebBridge.getDownloadedModels(knownModelIds);
+      results.addAll(webModels);
+    }
+    final saved = await StorageService.loadDownloadedModels();
+    results.addAll(saved);
+    return results.toList();
+  }
+
+  /// Deletes a downloaded model from disk storage
+  static Future<bool> deleteDownloadedModel(String modelId) async {
+    bool ok = true;
+    if (kIsWeb) {
+      ok = await WebBridge.deleteDownloadedModel(modelId);
+    }
+    await StorageService.removeDownloadedModel(modelId);
+    if (loadedModelId == modelId) {
+      isModelLoaded = false;
+      loadedModelId = null;
+      isLoadedFromDisk = false;
+    }
+    return ok;
+  }
+
+  /// Allows user to select a model .task file from disk
+  static Future<Map<String, dynamic>?> pickModelFile([String? modelId]) async {
+    if (kIsWeb) {
+      final res = await WebBridge.pickModelFile(modelId);
+      if (res != null && res['name'] != null) {
+        final name = res['name'] as String;
+        await StorageService.saveDownloadedModel(name);
+        if (modelId != null) {
+          await StorageService.saveDownloadedModel(modelId);
+        }
+        return res;
+      }
+    }
+    return null;
+  }
+
+  /// Loads an In-Browser LLM (Gemma 4 MediaPipe / WebGPU)
+  /// If [fromDiskOnly] is true, it strictly loads from the locally downloaded disk cache.
   static Future<void> loadModel({
     required String modelId,
+    bool fromDiskOnly = false,
     required void Function(double progress, String status) onProgress,
   }) async {
     if (!kIsWeb) {
       isModelLoaded = true;
       loadedModelId = modelId;
-      onProgress(1.0, 'Ready (Simulated VM Mode)');
+      isLoadedFromDisk = fromDiskOnly;
+      await StorageService.saveDownloadedModel(modelId);
+      onProgress(1.0, fromDiskOnly ? 'Ready (Loaded from disk - Simulated VM)' : 'Ready (Simulated VM Mode)');
       return;
     }
 
-    onProgress(0.05, 'Checking browser WebGPU acceleration...');
+    final isDownloaded = await isModelDownloaded(modelId);
+    if (fromDiskOnly && !isDownloaded) {
+      throw Exception('Model "$modelId" is not saved on disk. Please download it first.');
+    }
+
+    if (isDownloaded) {
+      onProgress(0.05, 'Loading model from local disk storage...');
+    } else {
+      onProgress(0.05, 'Checking browser WebGPU acceleration...');
+    }
 
     try {
       await WebBridge.loadWebLlmModel(
         modelId: modelId,
+        fromDiskOnly: fromDiskOnly,
         onProgress: onProgress,
       );
       isModelLoaded = true;
       loadedModelId = modelId;
+      isLoadedFromDisk = isDownloaded;
+      await StorageService.saveDownloadedModel(modelId);
     } catch (e) {
       debugPrint('WebLLM load failed: $e');
+      if (fromDiskOnly) {
+        rethrow;
+      }
       isModelLoaded = true;
       loadedModelId = modelId;
+      isLoadedFromDisk = false;
       onProgress(1.0, 'Ready (In-Browser rule-based WASM extractor active)');
     }
   }
@@ -59,11 +137,11 @@ class InBrowserWasmService {
     }
 
     // Fallback: In-browser heuristic recipe structuring if WebLLM GPU runtime wasn't activated
-    return _semanticRecipeExtractorFallback(prompt);
+    return semanticRecipeExtractorFallback(prompt);
   }
 
   /// Rule-based fallback parser when WebGPU is disabled
-  static String _semanticRecipeExtractorFallback(String text) {
+  static String semanticRecipeExtractorFallback(String text) {
     final lines = text.split('\n');
 
     // 1. Extract metadata via regexes
@@ -120,7 +198,14 @@ class InBrowserWasmService {
     final tags = <String>{};
     final cuisineMatch = RegExp(r'Cuisine\s*[:\s]\s*([^\n\r]+)', caseSensitive: false).firstMatch(text);
     if (cuisineMatch != null) {
-      tags.add(cuisineMatch.group(1)!.trim().toLowerCase().replaceAll(' ', '-'));
+      final cVal = cuisineMatch.group(1)!.trim().toLowerCase();
+      if (cVal.contains('greek')) {
+        tags.add('greek');
+      } else if (cVal.contains('italian')) {
+        tags.add('italian');
+      } else {
+        tags.add(cVal.replaceAll(' ', '-'));
+      }
     }
     final courseMatch = RegExp(r'Course\s*[:\s]\s*([^\n\r]+)', caseSensitive: false).firstMatch(text);
     if (courseMatch != null) {
@@ -143,7 +228,7 @@ class InBrowserWasmService {
     final instructionBlocks = <String>[];
     final noteLines = <String>[];
 
-    String currentSection = 'none'; // 'none', 'ingredients', 'instructions', 'notes', 'done'
+    String currentSection = 'none'; // 'none', 'ingredients', 'instructions', 'notes', 'nutrition'
 
     final quantityStartRegex = RegExp(
       r'^(\d+|[½⅓⅔¼¾⅛⅜⅝⅞]|a\s+|an\s+|pinch|dash|to\s+taste|handful|drizzle|few|some)',
@@ -172,15 +257,21 @@ class InBrowserWasmService {
         continue;
       }
       if (RegExp(r'^#*\s*(?:nutrition|nutrition\s*facts)\b', caseSensitive: false).hasMatch(line)) {
-        currentSection = 'done';
+        currentSection = 'nutrition';
         continue;
       }
 
-      // Ignore page markers, URLs, dates
+      // Ignore page markers, URLs, dates, repeated headers, page fractions
       if (line.startsWith('---') ||
           line.startsWith('http://') ||
           line.startsWith('https://') ||
-          RegExp(r'^\d{1,2}/\d{1,2}/\d{2,4}').hasMatch(line)) {
+          RegExp(r'^\d+\s*/\s*\d+$').hasMatch(line) ||
+          RegExp(r'^\d{1,2}/\d{1,2}/\d{2,4}').hasMatch(line) ||
+          (title.length > 5 && line.toLowerCase().contains(title.toLowerCase()))) {
+        continue;
+      }
+
+      if (currentSection == 'nutrition') {
         continue;
       }
 
@@ -205,9 +296,8 @@ class InBrowserWasmService {
       } else if (currentSection == 'instructions') {
         final isNumbered = RegExp(r'^\s*(?:\d+[\.\)]|\(\d+\)|Step\s*\d+[:\.]?)\s*', caseSensitive: false).hasMatch(line);
         final isStageHeader = !isNumbered && (
-          RegExp(r'^(?:make\s+the|assemble|prepare|bake|cook|for\s+the|to\s+make|step\s*\d+:)\b', caseSensitive: false).hasMatch(line) ||
-          (line.endsWith(':') && line.length < 50) ||
-          (line.length < 40 && !line.endsWith('.') && !quantityStartRegex.hasMatch(line))
+          RegExp(r'^(?:make\s+the|assemble|prepare|bake|cook|for\s+the|to\s+make|step\s*\d+:|part\s*\d+:)\b', caseSensitive: false).hasMatch(line) ||
+          (line.endsWith(':') && line.length < 50)
         );
 
         if (isStageHeader) {
