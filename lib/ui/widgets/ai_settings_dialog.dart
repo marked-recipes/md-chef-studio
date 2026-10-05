@@ -141,10 +141,10 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
                 initialValue: _activeType,
                 decoration: const InputDecoration(labelText: 'Primary Engine'),
                 items: const [
-                  DropdownMenuItem(value: AIServiceType.inBrowserWasm, child: Text('🌐 In-Browser WASM (WebGPU - Gemma / Granite)')),
-                  DropdownMenuItem(value: AIServiceType.localOllama, child: Text('💻 Local Ollama (http://localhost:11434)')),
-                  DropdownMenuItem(value: AIServiceType.remoteGemini, child: Text('☁️ Google Gemini API (Flash)')),
-                  DropdownMenuItem(value: AIServiceType.remoteOpenAI, child: Text('☁️ OpenAI / OpenRouter (Granite/Gemma/Claude)')),
+                  DropdownMenuItem(value: AIServiceType.inBrowserWasm, child: Text('In-Browser WASM (WebGPU - Gemma / Granite)')),
+                  DropdownMenuItem(value: AIServiceType.localOllama, child: Text('Local Ollama (http://localhost:11434)')),
+                  DropdownMenuItem(value: AIServiceType.remoteGemini, child: Text('Google Gemini API (Flash)')),
+                  DropdownMenuItem(value: AIServiceType.remoteOpenAI, child: Text('OpenAI / OpenRouter (Granite/Gemma/Claude)')),
                 ],
                 onChanged: (val) {
                   if (val != null) setState(() => _activeType = val);
@@ -173,7 +173,7 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              hasWebGpu ? 'WebGPU Supported on this browser' : 'WebGPU not detected; rule-based WASM fallback will be used',
+                              hasWebGpu ? 'WebGPU Supported on this browser' : 'WebGPU not detected; manual recipe entry or cloud AI can be used',
                               style: TextStyle(fontSize: 12, color: hasWebGpu ? AppTheme.accentSage : Colors.amber),
                             ),
                           ),
@@ -215,7 +215,7 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
                       decoration: const InputDecoration(labelText: 'Default In-Browser Model'),
                       items: AIConfig.wasmModelOptions.map((opt) {
                         final isDownloaded = _downloadedModels.contains(opt['id']);
-                        final statusPrefix = isDownloaded ? '💾 [On Disk]' : '⬇️ [Download]';
+                        final statusPrefix = isDownloaded ? '[On Disk]' : '[Download]';
                         return DropdownMenuItem(
                           value: opt['id'],
                           child: Text('$statusPrefix ${opt['name']} (${opt['size']})'),
@@ -249,7 +249,7 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
                                 _loadWasmFromDisk = true;
                               });
                               await _refreshDownloadedModels();
-                              if (mounted) {
+                              if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text('Loaded model file from disk: $name')),
                                 );
@@ -313,7 +313,7 @@ class _AiSettingsDialogState extends State<AiSettingsDialog> {
                       ),
                     ] else ...[
                       Text(
-                        '💡 No models downloaded to disk yet. Models will be saved to disk once downloaded for offline loading.',
+                        'No models downloaded to disk yet. Models will be saved to disk once downloaded for offline loading.',
                         style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: isDark ? Colors.white60 : Colors.black54),
                       ),
                     ],

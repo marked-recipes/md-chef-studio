@@ -86,7 +86,7 @@ credit: Carl
 - **Review & Commit**: After extraction, preview the generated recipe and open it in the editor with one click to commit it to your Git repository.
 
 ### 5. Interactive Cooking Mode & Sleek Interface
-- **Cuisine Dropdown with Recipe Counts**: Compact dropdown filter displaying dynamic counts (e.g. `All Cuisines (18)`, `Pasta (6)`, `Soup (4)`), matching `mdchef.moscait.com`.
+- **Cuisine Dropdown with Recipe Counts**: Compact dropdown filter displaying dynamic counts (e.g. `All Cuisines (18)`, `Pasta (6)`, `Soup (4)`)
 - **Markdown Section Headers**: Renders grouped ingredient and instruction stages (`### Dough`, `### Sauce`) as headers without checkboxes, keeping checklist numbering and progress bars accurate.
 - **Interactive Checklists**: Cross off ingredients as you prepare them.
 - **Step-by-Step Instruction Tracking**: Interactive checkboxes with a real-time progress bar.
@@ -203,3 +203,5 @@ lib/
 
 ## 📄 License
 MIT
+
+© Copyright is held by Mosca IT LLC

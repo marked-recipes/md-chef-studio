@@ -386,14 +386,44 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
                         ),
                       ),
                     ] else ...[
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.auto_awesome),
-                          label: const Text('Extract & Structure Recipe', style: TextStyle(fontSize: 16)),
-                          onPressed: _triggerExtraction,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 50,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.auto_awesome),
+                                label: const Text('Extract with AI', style: TextStyle(fontSize: 15)),
+                                onPressed: _triggerExtraction,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            height: 50,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.edit_note),
+                              label: const Text('Enter Manually', style: TextStyle(fontSize: 14)),
+                              onPressed: () {
+                                final category = _categoryController.text.trim().isEmpty ? 'Main' : _categoryController.text.trim();
+                                Navigator.of(context).pop();
+                                showDialog(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (ctx) => RecipeEditorDialog(
+                                    recipe: Recipe(
+                                      id: '$category/new-recipe.md',
+                                      category: category,
+                                      fileName: 'new-recipe.md',
+                                      title: 'New Recipe',
+                                      rawMarkdown: '',
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ],
 
@@ -407,14 +437,44 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: Colors.redAccent.withAlpha(76)),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.error_outline, color: Colors.redAccent),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                extraction.errorMessage!,
-                                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                            Row(
+                              children: [
+                                const Icon(Icons.error_outline, color: Colors.redAccent),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    extraction.errorMessage!,
+                                    style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.edit_note, size: 16),
+                                label: const Text('Manually Enter Recipe in Editor'),
+                                onPressed: () {
+                                  final category = _categoryController.text.trim().isEmpty ? 'Main' : _categoryController.text.trim();
+                                  Navigator.of(context).pop();
+                                  showDialog(
+                                    context: context,
+                                    barrierDismissible: false,
+                                    builder: (ctx) => RecipeEditorDialog(
+                                      recipe: Recipe(
+                                        id: '$category/new-recipe.md',
+                                        category: category,
+                                        fileName: 'new-recipe.md',
+                                        title: 'New Recipe',
+                                        rawMarkdown: '',
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                           ],
@@ -427,9 +487,27 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
                       const SizedBox(height: 24),
                       const Divider(),
                       const SizedBox(height: 16),
-                      Text(
-                        '3. Recipe Extracted Successfully!',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.accentSage),
+                      Builder(
+                        builder: (ctx) {
+                          final hasIssues = extraction.validationResult != null && !extraction.validationResult!.isReasonable;
+                          final hasErrors = extraction.validationResult?.hasErrors ?? false;
+                          return Text(
+                            hasErrors
+                                ? '3. Recipe Extracted (Issues Found - Review Required)'
+                                : hasIssues
+                                    ? '3. Recipe Extracted (Quality Warnings - Review Advised)'
+                                    : '3. Recipe Extracted Successfully!',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: hasErrors
+                                  ? Colors.redAccent
+                                  : hasIssues
+                                      ? Colors.orangeAccent
+                                      : AppTheme.accentSage,
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       _buildExtractedPreviewCard(context, extraction.extractedRecipe!, isDark, primaryColor),
@@ -682,7 +760,7 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
               decoration: const InputDecoration(labelText: 'In-Browser Model (WASM / WebGPU)'),
               items: AIConfig.wasmModelOptions.map((opt) {
                 final isDown = extraction.isModelDownloaded(opt['id']!);
-                final prefix = isDown ? '💾 [On Disk]' : '⬇️ [Download]';
+                final prefix = isDown ? '[On Disk]' : '[Download]';
                 return DropdownMenuItem(
                   value: opt['id'],
                   child: Text('$prefix ${opt['name']} (${opt['size']})'),
@@ -920,12 +998,23 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
   }
 
   Widget _buildExtractedPreviewCard(BuildContext context, Recipe recipe, bool isDark, Color primaryColor) {
+    final extraction = context.watch<ExtractionProvider>();
+    final validation = extraction.validationResult;
+
+    final hasErrors = validation != null && validation.hasErrors;
+    final hasWarnings = validation != null && validation.hasWarnings;
+    final borderColor = hasErrors
+        ? Colors.redAccent.withAlpha(140)
+        : hasWarnings
+            ? Colors.orangeAccent.withAlpha(140)
+            : AppTheme.accentSage.withAlpha(76);
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.accentSage.withAlpha(76)),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -939,9 +1028,16 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
                 ),
               ),
               ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentSage, foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: hasErrors
+                      ? Colors.orange[800]
+                      : hasWarnings
+                          ? Colors.orange[700]
+                          : AppTheme.accentSage,
+                  foregroundColor: Colors.white,
+                ),
                 icon: const Icon(Icons.check, size: 18),
-                label: const Text('Review & Save to Git Repo'),
+                label: Text(hasErrors || hasWarnings ? 'Review & Fix in Editor' : 'Review & Save to Git Repo'),
                 onPressed: () {
                   Navigator.of(context).pop();
                   showDialog(
@@ -955,16 +1051,195 @@ class _AiExtractorDialogState extends State<AiExtractorDialog> with SingleTicker
           ),
           const SizedBox(height: 10),
           Wrap(
-            spacing: 12,
-            runSpacing: 6,
+            spacing: 16,
+            runSpacing: 8,
             children: [
-              Text('📁 Category: ${recipe.category}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-              Text('⏱️ Prep: ${recipe.prepTime ?? "15"}m', style: const TextStyle(fontSize: 12)),
-              Text('🔥 Cook: ${recipe.cookTime ?? "20"}m', style: const TextStyle(fontSize: 12)),
-              Text('🥗 ${recipe.ingredients.length} Ingredients', style: const TextStyle(fontSize: 12)),
-              Text('📋 ${recipe.instructions.length} Steps', style: const TextStyle(fontSize: 12)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.folder_outlined, size: 14, color: isDark ? Colors.white70 : Colors.black87),
+                  const SizedBox(width: 4),
+                  Text('Category: ${recipe.category}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.timer_outlined, size: 14, color: isDark ? Colors.white70 : Colors.black87),
+                  const SizedBox(width: 4),
+                  Text('Prep: ${recipe.prepTime ?? "15"}m', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.local_fire_department_outlined, size: 14, color: isDark ? Colors.white70 : Colors.black87),
+                  const SizedBox(width: 4),
+                  Text('Cook: ${recipe.cookTime ?? "20"}m', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.restaurant_menu_outlined, size: 14, color: isDark ? Colors.white70 : Colors.black87),
+                  const SizedBox(width: 4),
+                  Text('${recipe.ingredients.where((i) => !i.isHeader).length} Ingredients', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.checklist_outlined, size: 14, color: isDark ? Colors.white70 : Colors.black87),
+                  const SizedBox(width: 4),
+                  Text('${recipe.instructions.where((s) => !s.isHeader).length} Steps', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
             ],
           ),
+
+          // Reasonableness Checks Banner
+          if (validation != null) ...[
+            const SizedBox(height: 16),
+            if (hasErrors || hasWarnings) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: hasErrors
+                      ? Colors.red.withAlpha(isDark ? 35 : 20)
+                      : Colors.orange.withAlpha(isDark ? 35 : 20),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hasErrors
+                        ? Colors.redAccent.withAlpha(120)
+                        : Colors.orangeAccent.withAlpha(120),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          hasErrors ? Icons.error_outline : Icons.warning_amber_rounded,
+                          size: 20,
+                          color: hasErrors ? Colors.redAccent : Colors.orangeAccent,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            hasErrors
+                                ? 'Reasonableness Check: Critical Issues Found'
+                                : 'Reasonableness Check: ${validation.issueCount} Quality Warning${validation.issueCount > 1 ? "s" : ""}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: hasErrors ? Colors.redAccent : (isDark ? Colors.orange[300] : Colors.orange[900]),
+                            ),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: hasErrors ? Colors.redAccent : (isDark ? Colors.orange[300] : Colors.orange[900]),
+                            side: BorderSide(color: hasErrors ? Colors.redAccent.withAlpha(120) : Colors.orangeAccent.withAlpha(120)),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          ),
+                          icon: const Icon(Icons.auto_fix_high, size: 15),
+                          label: const Text('Auto-Fix Issues', style: TextStyle(fontSize: 12)),
+                          onPressed: () {
+                            extraction.applyAutoFix();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Auto-fixed duplicate ingredients and steps.')),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    for (final err in validation.errors)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.cancel, size: 14, color: Colors.redAccent),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                err,
+                                style: const TextStyle(fontSize: 12, color: Colors.redAccent, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    for (final warn in validation.warnings)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, size: 14, color: isDark ? Colors.orange[200] : Colors.orange[900]),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                warn,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.orange[200] : Colors.orange[900],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    for (final notice in validation.notices)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline, size: 14, color: isDark ? Colors.white60 : Colors.black54),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                notice,
+                                style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentSage.withAlpha(isDark ? 25 : 15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.accentSage.withAlpha(60)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.verified_rounded, size: 18, color: AppTheme.accentSage),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Passed all reasonableness checks: Ingredients, instructions, and uniqueness verified.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ],
       ),
     );

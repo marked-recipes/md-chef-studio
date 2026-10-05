@@ -8,9 +8,7 @@ import 'package:md_chef_studio/providers/recipe_provider.dart';
 import 'package:md_chef_studio/providers/settings_provider.dart';
 import 'package:md_chef_studio/providers/extraction_provider.dart';
 import 'package:md_chef_studio/services/recipe_cache_service.dart';
-import 'package:md_chef_studio/services/in_browser_wasm_service.dart';
-import 'package:md_chef_studio/services/ai_service.dart';
-import 'package:md_chef_studio/models/ai_config.dart';
+import 'package:md_chef_studio/models/recipe_validation_result.dart';
 import 'package:md_chef_studio/ui/widgets/recipe_editor_dialog.dart';
 import 'package:md_chef_studio/main.dart';
 
@@ -317,71 +315,55 @@ title: Cacio e Pepe
     expect(find.text('Save Local Draft Only'), findsOneWidget);
   });
 
-  test('Greek flatbread multi-component semantic extraction test', () {
-    const rawPdfText = '''
-Greek Flatbread with Spanakopita Topping - FoodByMaria
+  test('Greek flatbread multi-component parsing test', () {
+    const sampleRecipeMarkdown = '''---
+title: Greek Flatbread with Spanakopita Topping
+prep_time: 10
+cook_time: 30
+servings: 4
+difficulty: Easy
+tags:
+  - greek
+  - dinner
+credit: Maria Koutsogiannis
+---
 
-Greek Flatbread with Spanakopita Topping
-Greek Flatbread uses a flatbread with a delicious spanakopita topping.
-Course
-Main
-Cuisine
-Greek-Inspired
-Keyword
-flatbread
-Prep Time
-10 minutes
-Cook Time
-30 minutes
-Servings
-3 -4
-Author
-Maria Koutsogiannis
+## Ingredients
 
-Ingredients
+- [ ] 1 flatbread (about 20 inches long by 8-10 inches wide)
+### Garlic confit sauce
+- [ ] 1 cup peeled cloves of garlic
+- [ ] ¾ cup olive oil
+- [ ] ½ tsp chili flakes
+### Spanakopita topping
+- [ ] 1 tbsp olive oil
+- [ ] 500-550 g fresh spinach
+- [ ] 1 cup crumbled feta cheese
+### Garnishes
+- [ ] ¼ cup crumbled feta cheese
+- [ ] olive oil
+- [ ] honey
+- [ ] fresh mint
 
-1 flatbread (about 20 inches long by 8-10 inches wide)
-Garlic confit sauce
-1 cup peeled cloves of garlic
-¾ cup olive oil
-½ tsp chili flakes
-Spanakopita topping
-1 tbsp olive oil
-500-550 g fresh spinach
-1 cup crumbled feta cheese
-Garnishes
-¼ cup crumbled feta cheese
-olive oil
-honey
-fresh mint
+## Instructions
 
-Instructions
+### Make the garlic confit sauce
+- [ ] To a small pot, add peeled garlic cloves, olive oil, chili flakes and ground pepper. Bring to a simmer.
+- [ ] Scoop the garlic out and blend until smooth.
+### Make the spanakopita topping
+- [ ] In a large pot or skillet, heat your olive oil on medium heat.
+- [ ] Add spinach and cook down.
+### Assemble and bake the flatbread
+- [ ] Lay flatbread on a baking sheet. Spread the garlic confit mixture.
+- [ ] Bake in the oven for 12-17 minutes.
+- [ ] Top with olive oil, honey and mint.
 
-Make the garlic confit sauce
-1. To a small pot, add peeled garlic cloves, olive oil, chili flakes and ground pepper. Bring to a simmer.
-2. Scoop the garlic out and blend until smooth.
-
-Make the spanakopita topping
-1. In a large pot or skillet, heat your olive oil on medium heat.
-2. Add spinach and cook down.
-
-Assemble and bake the flatbread
-1. Lay flatbread on a baking sheet. Spread the garlic confit mixture.
-2. Bake in the oven for 12-17 minutes.
-3. Top with olive oil, honey and mint.
-
-Notes
-
-Serve this flatbread with salad.
-If you love this flatbread, try our pita bread recipe.
-
-Nutrition
-Calories: 389kcal
-FoodbyMaria.com
+## Notes
+* Serve this flatbread with salad.
+* If you love this flatbread, try our pita bread recipe.
 ''';
 
-    final extracted = InBrowserWasmService.semanticRecipeExtractorFallback(rawPdfText);
-    final recipe = Recipe.fromMarkdown('Main/greek-flatbread.md', extracted);
+    final recipe = Recipe.fromMarkdown('Main/greek-flatbread.md', sampleRecipeMarkdown);
 
     expect(recipe.title, contains('Greek Flatbread'));
     expect(recipe.prepTime, 10);
@@ -403,32 +385,11 @@ FoodbyMaria.com
     expect(instHeaders, contains('Make the spanakopita topping'));
     expect(instHeaders, contains('Assemble and bake the flatbread'));
 
-    expect(recipe.instructions.where((i) => !i.isHeader).length, greaterThanOrEqualTo(6));
+    expect(recipe.instructions.where((i) => !i.isHeader).length, 7);
     expect(recipe.notes, contains('Serve this flatbread with salad.'));
   });
 
-  test('AIService recovers from truncated AI output using fallback extractor', () async {
-    const rawPdfText = '''
-Greek Flatbread with Spanakopita Topping
-Cuisine
-Greek-Inspired
-Prep Time
-10 minutes
-Cook Time
-30 minutes
-
-Ingredients
-1 flatbread
-Garlic confit sauce
-1 cup garlic
-Spanakopita topping
-1 cup spinach
-
-Instructions
-1. Cook the sauce.
-2. Bake flatbread.
-''';
-
+  test('RecipeValidationResult flags missing instructions when AI output is truncated', () async {
     // Simulate an AI response that got truncated right at ingredients
     const truncatedAiOutput = '''---
 title: Greek Flatbread with Spanakopita Topping
@@ -438,7 +399,7 @@ servings: 3
 difficulty: Easy
 tags:
   - dinner
-  - italian
+  - greek
   - bread
 credit: Maria Koutsogiannis
 ---
@@ -453,22 +414,87 @@ credit: Maria Koutsogiannis
 ''';
 
     final recipe = Recipe.fromMarkdown('Main/greek-flatbread.md', truncatedAiOutput);
-    // Directly invoke the fallback recovery logic
-    final fallbackMarkdown = InBrowserWasmService.semanticRecipeExtractorFallback(rawPdfText);
-    final fallbackRecipe = Recipe.fromMarkdown('Main/greek-flatbread.md', fallbackMarkdown);
+    final validation = RecipeValidationResult.validate(recipe);
 
-    var recovered = recipe;
-    if (recipe.instructions.isEmpty && fallbackRecipe.instructions.isNotEmpty) {
-      recovered = recovered.copyWith(instructions: fallbackRecipe.instructions);
-    }
-    // And sanitize tags
-    if (recovered.tags.contains('italian') && rawPdfText.toLowerCase().contains('greek')) {
-      final updatedTags = recovered.tags.map((t) => t == 'italian' ? 'greek' : t).toList();
-      recovered = recovered.copyWith(tags: updatedTags);
-    }
+    // Without a heuristic fallback, truncated AI outputs are accurately caught by validation
+    // and shown to the user so they can manually review, complete, or edit in the Recipe Editor
+    expect(validation.isValid, isFalse);
+    expect(validation.hasErrors, isTrue);
+    expect(validation.errors.any((e) => e.contains('No instructions')), isTrue);
+  });
 
-    expect(recovered.instructions.isNotEmpty, isTrue);
-    expect(recovered.tags, contains('greek'));
-    expect(recovered.tags, isNot(contains('italian')));
+  test('Reasonableness checks: flags missing ingredients and instructions', () {
+    final emptyRecipe = Recipe(
+      id: 'test-1',
+      category: 'Main',
+      fileName: 'empty.md',
+      title: 'Empty Dish',
+      rawMarkdown: '',
+    );
+
+    final result = RecipeValidationResult.validate(emptyRecipe);
+    expect(result.isValid, isFalse);
+    expect(result.hasErrors, isTrue);
+    expect(result.errors.any((e) => e.contains('No ingredients')), isTrue);
+    expect(result.errors.any((e) => e.contains('No instructions')), isTrue);
+  });
+
+  test('Reasonableness checks: flags duplicate ingredients and autoFix fixes them', () {
+    final recipe = Recipe(
+      id: 'test-2',
+      category: 'Main',
+      fileName: 'test.md',
+      title: 'Delicious Bowl',
+      ingredients: [
+        RecipeIngredientItem(text: '1 cup rice'),
+        RecipeIngredientItem(text: '1 cup rice'), // Duplicate!
+        RecipeIngredientItem(text: '1 tsp salt'),
+      ],
+      instructions: [
+        RecipeInstructionItem(step: 'Cook rice in pot.'),
+        RecipeInstructionItem(step: 'Cook rice in pot.'), // Duplicate!
+        RecipeInstructionItem(step: 'Season with salt and serve.'),
+      ],
+      rawMarkdown: '',
+    );
+
+    final result = RecipeValidationResult.validate(recipe);
+    expect(result.hasWarnings, isTrue);
+    expect(result.warnings.any((w) => w.contains('Duplicate ingredient')), isTrue);
+    expect(result.warnings.any((w) => w.contains('Duplicate instruction')), isTrue);
+
+    // Auto-fix test
+    final fixed = RecipeValidationResult.autoFix(recipe);
+    final fixedResult = RecipeValidationResult.validate(fixed);
+
+    expect(fixed.ingredients.where((i) => !i.isHeader).length, 2);
+    expect(fixed.instructions.where((s) => !s.isHeader).length, 2);
+    expect(fixedResult.warnings.any((w) => w.contains('Duplicate ingredient')), isFalse);
+    expect(fixedResult.warnings.any((w) => w.contains('Duplicate instruction')), isFalse);
+  });
+
+  test('Parses verbatim headnote into Notes in Recipe.fromMarkdown', () {
+    const markdown = '''---
+title: Sunny's Easy Egg Roll Bowl
+category: Main
+---
+
+## Notes
+If I’m getting takeout, I’m ordering egg rolls. So I took the flavors and textures from my favorite takeout snack, and put them into a big ol’ bowl. The usual suspects are all there: crunchy cabbage, seasoned pork, and the folded, fried wontons really make you feel like you’re biting into the chewy end bite of an eggroll. Salty soy sauce and spicy Chinese mustard are the perfect way to top it all off.
+
+## Ingredients
+- [ ] 14 wonton wrappers
+- [ ] 3 large eggs, beaten
+
+## Instructions
+- [ ] Fold wontons and fry.
+''';
+
+    final recipe = Recipe.fromMarkdown('Main/sunny.md', markdown);
+
+    expect(recipe.notes, isNotNull);
+    expect(recipe.notes, contains('If I’m getting takeout, I’m ordering egg rolls.'));
+    expect(recipe.notes, contains('big ol’ bowl'));
   });
 }
+

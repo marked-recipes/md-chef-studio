@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/ai_config.dart';
 import '../models/recipe.dart';
+import '../models/recipe_validation_result.dart';
 import '../services/ai_service.dart';
 import '../services/content_extractor_service.dart';
 import '../services/in_browser_wasm_service.dart';
@@ -10,6 +11,7 @@ class ExtractionProvider with ChangeNotifier {
   double _progress = 0.0;
   String _statusMessage = '';
   Recipe? _extractedRecipe;
+  RecipeValidationResult? _validationResult;
   String? _errorMessage;
 
   String _inputMode = 'url'; // 'file', 'url', 'text'
@@ -21,6 +23,7 @@ class ExtractionProvider with ChangeNotifier {
   double get progress => _progress;
   String get statusMessage => _statusMessage;
   Recipe? get extractedRecipe => _extractedRecipe;
+  RecipeValidationResult? get validationResult => _validationResult;
   String? get errorMessage => _errorMessage;
   String get inputMode => _inputMode;
   String get rawSourcePreview => _rawSourcePreview;
@@ -48,10 +51,20 @@ class ExtractionProvider with ChangeNotifier {
     _progress = 0.0;
     _statusMessage = '';
     _extractedRecipe = null;
+    _validationResult = null;
     _errorMessage = null;
     _rawSourcePreview = '';
     _detectedUrl = '';
     notifyListeners();
+  }
+
+  /// Automatically applies reasonableness fixes (deduplication, whitespace normalization, dropping hallucinated headers)
+  void applyAutoFix() {
+    if (_extractedRecipe != null) {
+      _extractedRecipe = RecipeValidationResult.autoFix(_extractedRecipe!, rawSource: _rawSourcePreview);
+      _validationResult = RecipeValidationResult.validate(_extractedRecipe!, rawSource: _rawSourcePreview);
+      notifyListeners();
+    }
   }
 
   /// Ensure In-Browser WASM model is ready if using InBrowser type
@@ -235,8 +248,15 @@ class ExtractionProvider with ChangeNotifier {
     );
 
     _extractedRecipe = recipe;
+    _validationResult = RecipeValidationResult.validate(recipe, rawSource: content);
     _progress = 1.0;
-    _statusMessage = 'Recipe extracted successfully!';
+    if (_validationResult!.hasErrors) {
+      _statusMessage = 'Extraction completed with critical issues. Please review.';
+    } else if (_validationResult!.hasWarnings) {
+      _statusMessage = 'Extraction completed with warnings. Please review.';
+    } else {
+      _statusMessage = 'Recipe extracted successfully!';
+    }
     _isExtracting = false;
     notifyListeners();
   }
@@ -246,6 +266,7 @@ class ExtractionProvider with ChangeNotifier {
     _progress = 0.1;
     _statusMessage = message;
     _extractedRecipe = null;
+    _validationResult = null;
     _errorMessage = null;
     notifyListeners();
   }

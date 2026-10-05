@@ -7,111 +7,188 @@
 (function () {
   console.log('[md-chef-studio] Initializing Web Bridge...');
 
-  // Helper to extract text in visual reading order from PDF.js textContent
+  // Robust multi-column layout analysis and visual reading order extractor for PDF.js textContent
   function processPdfTextContent(textContent) {
     if (!textContent || !textContent.items || textContent.items.length === 0) {
       return '';
     }
 
-    const items = textContent.items.filter((item) => item && typeof item.str === 'string');
+    const items = textContent.items.filter((item) => item && typeof item.str === 'string' && item.str.trim() !== '');
     if (items.length === 0) return '';
 
-    // Transform matrix: [scaleX, skewY, skewX, scaleY, tx, ty]
-    // In PDF coordinates, (0,0) is at bottom-left. Larger ty is higher up on the page.
-    const itemsWithCoords = items.map((item) => {
+    // 1. Filter out running browser print headers, footers, and page numbers upfront
+    const contentItems = [];
+    for (const item of items) {
+      const s = item.str.trim();
+      if (!s) continue;
+      // Page fractions (e.g. 1/2, 2/3)
+      if (/^\d+\s*\/\s*\d+$/.test(s)) continue;
+      // Browser print date/time stamps (e.g. 8/5/23, 12:04 PM)
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}(,\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?$/i.test(s)) continue;
+      // Running URL header/footer with page fraction at end (e.g. "... 1/2")
+      if (/^https?:\/\/.+\s+\d+\/\d+$/i.test(s)) continue;
+
       const tx = item.transform ? item.transform[4] : 0;
       const ty = item.transform ? item.transform[5] : 0;
       const width = item.width || 0;
       const height = item.height || Math.abs(item.transform ? item.transform[3] : 0) || 12;
-      return {
+
+      contentItems.push({
         str: item.str,
         x: tx,
         y: ty,
         width: width,
         height: height,
-      };
-    });
+      });
+    }
 
-    // Sort primarily by Y descending (top to bottom), secondarily by X ascending (left to right)
-    itemsWithCoords.sort((a, b) => {
-      const yDiff = b.y - a.y;
-      if (Math.abs(yDiff) <= 4.0) {
-        return a.x - b.x;
-      }
-      return yDiff;
-    });
+    if (contentItems.length === 0) return '';
 
-    // Group items into visual lines
-    const lines = [];
-    let currentLine = [];
-    let currentLineY = null;
+    // 2. Determine visual page bounds
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const it of contentItems) {
+      if (it.x < minX) minX = it.x;
+      if (it.x + it.width > maxX) maxX = it.x + it.width;
+      if (it.y < minY) minY = it.y;
+      if (it.y + it.height > maxY) maxY = it.y + it.height;
+    }
+    const pageWidth = maxX - minX;
 
-    for (const item of itemsWithCoords) {
-      if (item.str === '') continue;
+    // 3. Cluster items into visual lines (by Y coordinate proximity)
+    contentItems.sort((a, b) => b.y - a.y); // Top to bottom in PDF coords
 
-      if (currentLineY === null) {
-        currentLine.push(item);
-        currentLineY = item.y;
-      } else if (Math.abs(currentLineY - item.y) <= 4.0) {
-        currentLine.push(item);
+    const rawLines = [];
+    let curLine = [];
+    let curY = null;
+
+    for (const item of contentItems) {
+      if (curY === null) {
+        curLine = [item];
+        curY = item.y;
+      } else if (Math.abs(curY - item.y) <= 4.0) {
+        curLine.push(item);
       } else {
-        currentLine.sort((a, b) => a.x - b.x);
-        lines.push({ y: currentLineY, items: currentLine });
-        currentLine = [item];
-        currentLineY = item.y;
+        curLine.sort((a, b) => a.x - b.x);
+        rawLines.push(curLine);
+        curLine = [item];
+        curY = item.y;
       }
     }
-
-    if (currentLine.length > 0) {
-      currentLine.sort((a, b) => a.x - b.x);
-      lines.push({ y: currentLineY, items: currentLine });
+    if (curLine.length > 0) {
+      curLine.sort((a, b) => a.x - b.x);
+      rawLines.push(curLine);
     }
 
-    // Assemble text from lines with newline and paragraph gap detection
-    let pageText = '';
-    let prevY = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const lineObj = lines[i];
-      let lineStr = '';
-      let prevItemEnd = null;
-
-      for (const item of lineObj.items) {
-        if (lineStr.length > 0) {
-          const needsSpace =
-            !lineStr.endsWith(' ') &&
-            !item.str.startsWith(' ') &&
-            (prevItemEnd === null || item.x - prevItemEnd > 1.5);
-          if (needsSpace) {
-            lineStr += ' ';
-          }
-        }
-        lineStr += item.str;
-        prevItemEnd = item.x + item.width;
-      }
-
-      lineStr = lineStr.trim();
-      if (lineStr.length === 0) continue;
-
-      // Filter out repetitive page numbers (e.g. 1/3, 2/3) and date stamps
-      if (/^\d+\s*\/\s*\d+$/.test(lineStr) || /^\d{1,2}\/\d{1,2}\/\d{2,4}(,\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?$/i.test(lineStr)) {
-        continue;
-      }
-
-      if (prevY !== null) {
-        const yGap = prevY - lineObj.y;
-        if (yGap > 22.0) {
-          pageText += '\n\n';
+    // 4. Within each visual line, split across horizontal column gutters (>= 20px)
+    // This fundamentally guarantees items across columns are NEVER glued together into the same line.
+    const lineSegments = [];
+    for (const line of rawLines) {
+      let segment = [line[0]];
+      for (let i = 1; i < line.length; i++) {
+        const prev = segment[segment.length - 1];
+        const curr = line[i];
+        const gap = curr.x - (prev.x + prev.width);
+        if (gap >= 20.0) {
+          lineSegments.push(segment);
+          segment = [curr];
         } else {
-          pageText += '\n';
+          segment.push(curr);
         }
       }
-
-      pageText += lineStr;
-      prevY = lineObj.y;
+      lineSegments.push(segment);
     }
 
-    return pageText;
+    // Build text fragments with spatial bounds
+    const fragments = lineSegments.map((seg) => {
+      let sMinX = seg[0].x;
+      let sMaxX = seg[seg.length - 1].x + seg[seg.length - 1].width;
+      let sY = seg[0].y;
+      let text = '';
+      let prevEnd = null;
+      for (const it of seg) {
+        if (text.length > 0) {
+          const needsSpace =
+            !text.endsWith(' ') &&
+            !it.str.startsWith(' ') &&
+            (prevEnd === null || it.x - prevEnd > 1.5);
+          if (needsSpace) text += ' ';
+        }
+        text += it.str;
+        prevEnd = it.x + it.width;
+      }
+      return {
+        text: text.trim(),
+        x1: sMinX,
+        x2: sMaxX,
+        y: sY,
+        width: sMaxX - sMinX,
+      };
+    }).filter((f) => f.text.length > 0);
+
+    if (fragments.length === 0) return '';
+
+    // 5. Detect multi-column structure and gutter position
+    const midX = minX + pageWidth * 0.45;
+    const leftFrags = fragments.filter((f) => f.x2 <= midX + 30);
+    const rightFrags = fragments.filter((f) => f.x1 >= midX - 30);
+
+    const hasColumns = leftFrags.length >= 2 && rightFrags.length >= 2;
+
+    if (!hasColumns) {
+      // Single column: sort strictly top-to-bottom
+      fragments.sort((a, b) => b.y - a.y);
+      return fragments.map((f) => f.text).join('\n');
+    }
+
+    // 6. Multi-column layout: separate Header Band, Column 1 (Left), Column 2 (Right), and Footer Band
+    let rightColTopY = -Infinity;
+    for (const rf of rightFrags) {
+      if (rf.y > rightColTopY) rightColTopY = rf.y;
+    }
+    const headerThresholdY = rightColTopY + 12.0;
+
+    let leftColBottomY = Infinity, rightColBottomY = Infinity;
+    for (const lf of leftFrags) {
+      if (lf.y < leftColBottomY) leftColBottomY = lf.y;
+    }
+    for (const rf of rightFrags) {
+      if (rf.y < rightColBottomY) rightColBottomY = rf.y;
+    }
+    const colBottomY = Math.min(leftColBottomY, rightColBottomY);
+    const footerThresholdY = colBottomY - 12.0;
+
+    const headerFrags = [];
+    const col1Frags = [];
+    const col2Frags = [];
+    const footerFrags = [];
+
+    for (const f of fragments) {
+      if (f.y >= headerThresholdY) {
+        headerFrags.push(f);
+      } else if (f.y <= footerThresholdY && f.x1 < midX - 20 && f.x2 > midX + 20) {
+        footerFrags.push(f);
+      } else {
+        if (f.x1 >= midX - 25) {
+          col2Frags.push(f);
+        } else {
+          col1Frags.push(f);
+        }
+      }
+    }
+
+    // Sort each region strictly top-to-bottom
+    headerFrags.sort((a, b) => b.y - a.y);
+    col1Frags.sort((a, b) => b.y - a.y);
+    col2Frags.sort((a, b) => b.y - a.y);
+    footerFrags.sort((a, b) => b.y - a.y);
+
+    const blocks = [];
+    if (headerFrags.length > 0) blocks.push(headerFrags.map((f) => f.text).join('\n'));
+    if (col1Frags.length > 0) blocks.push(col1Frags.map((f) => f.text).join('\n'));
+    if (col2Frags.length > 0) blocks.push(col2Frags.map((f) => f.text).join('\n'));
+    if (footerFrags.length > 0) blocks.push(footerFrags.map((f) => f.text).join('\n'));
+
+    return blocks.join('\n\n');
   }
 
   // 1. PDF Text Extraction using PDF.js
@@ -523,6 +600,8 @@
         messages: messages,
         temperature: temperature || 0.3,
         max_tokens: 4096,
+        presence_penalty: 0.3,
+        frequency_penalty: 0.3,
       });
 
       return reply.choices[0].message.content;
